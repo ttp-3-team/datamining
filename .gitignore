@@ -1,0 +1,18 @@
+outputs/
+model_outputs/
+comparison_outputs/
+train_only_outputs/
+catboost_outputs/
+validation_extension_outputs/
+interaction_outputs/
+weighted_weekly_outputs/
+method_review_outputs/
+review_assets/
+catboost_info/
+*.joblib
+*.cbm
+__pycache__/
+.ipynb_checkpoints/
+*.csv
+*.zip
+# Перед комітом ноутбуків очистити виводи з даними.

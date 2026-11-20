@@ -1,0 +1,2 @@
+-r requirements_model.txt
+# HistGradientBoostingClassifier входить до scikit-learn з requirements_model.txt.
