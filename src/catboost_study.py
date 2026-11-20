@@ -173,7 +173,7 @@ def run(root):
     import catboost
     evidence = {"protocol_sha256": digest, "actual_source_csv_open_events": access,
                 "catboost_version": catboost.__version__, "prior_evidence": old_evidence,
-                "code_sha256": {n: hashlib.sha256((root/n).read_bytes()).hexdigest() for n in
+                "code_sha256": {n: hashlib.sha256((root / "src" / n).read_bytes()).hexdigest() for n in
                                 ["catboost_study.py", "train_only_study.py", "model_comparison.py", "preparation.py"]},
                 "result_sha256": {n: hashlib.sha256((output/f"{n}.csv").read_bytes()).hexdigest() for n in tables}}
     (output / "run_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")

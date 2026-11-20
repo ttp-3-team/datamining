@@ -277,7 +277,7 @@ def run(root):
         frame.to_csv(output/f"{name}.csv", index=False)
     evidence = {"protocol_sha256": protocol_hash, "actual_source_csv_open_events": access,
                 "baseline_predictions_reproduced": True, "validation_opened": False, "test_opened": False,
-                "code_sha256": {n: digest(root/n) for n in ["weighted_weekly_study.py", "train_only_study.py", "interaction_study.py", "catboost_study.py", "model_comparison.py", "preparation.py"]},
+                "code_sha256": {n: digest(root / "src" / n) for n in ["weighted_weekly_study.py", "train_only_study.py", "interaction_study.py", "catboost_study.py", "model_comparison.py", "preparation.py"]},
                 "result_sha256": {n: digest(output/f"{n}.csv") for n in tables}}
     (output/"run_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
     return tables["primary_summary"], tables["weekly_summary"], tables["weekly_periods"]

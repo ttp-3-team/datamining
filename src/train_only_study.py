@@ -348,7 +348,7 @@ def run(root):
     evidence = {"protocol_sha256": protocol_hash, "opened_data_tables": access_log,
                 "observed_input_csv_open_events": observed_access,
                 "train_audit_sha256": hashlib.sha256((root / "outputs" / "train_audit.csv").read_bytes()).hexdigest(),
-                "code_sha256": {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in
+                "code_sha256": {p: hashlib.sha256((root / "src" / p).read_bytes()).hexdigest() for p in
                                 ["train_only_study.py", "model_comparison.py", "preparation.py"]},
                 "versions": {"python": sys.version.split()[0], "sklearn": sklearn.__version__,
                              "pandas": pd.__version__, "numpy": np.__version__},

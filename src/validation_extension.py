@@ -262,7 +262,7 @@ def run(root):
     joblib.dump({"lr": lr_cal, "catboost": cat_cal}, output / "train_calibrators.joblib")
     evidence = {"protocol_sha256": protocol_hash, "actual_input_csv_open_events": opened,
                 "test_opened": False, "validation_previously_used": True,
-                "code_sha256": digest(root / "validation_extension.py"),
+                "code_sha256": digest(root / "src" / "validation_extension.py"),
                 "train_parameter_lock_sha256": digest(lock),
                 "prior_validation_predictions_sha256": digest(root / "comparison_outputs" / "validation_predictions.csv"),
                 "result_sha256": {name: digest(output / f"{name}.csv") for name in tables}}

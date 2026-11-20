@@ -5,7 +5,7 @@ import hashlib
 import numpy as np
 import pandas as pd
 
-root=Path(__file__).resolve().parent
+root=Path(__file__).resolve().parent.parent
 folder=root/"method_review_outputs"
 evidence=json.loads((folder/"report_evidence.json").read_text(encoding="utf-8"))
 digest=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()

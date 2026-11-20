@@ -15,7 +15,7 @@ from preparation import (
 import train_only_study as study
 from model_comparison import evaluate, predict
 
-FINAL_FOLDS = [(5, 9), (9, 13), (13, 17)]
+FINAL_FOLDS = [[5, 9], [9, 13], [13, 17]]
 SUPPORTED_STRATEGIES = {
     "logistic", "logistic_calibrated", "boosting", "boosting_calibrated", "blend_50_50"
 }
@@ -58,6 +58,7 @@ def freeze_protocol(root: Path) -> dict:
         "inner_folds": FINAL_FOLDS,
         "decision_rule": "p * 0.2 * amount_usd > 6; unavailable amount -> review_amount",
         "test_opened": False,
+        "test_accessed_in_failed_attempt_without_metrics": True,
         "test_reused_for_selection": False,
     }
     if lock_path.exists():
@@ -80,14 +81,14 @@ def _raw_from_audit(audit: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return data, source_audit
 
 
-def _fit_strategy(strategy, train, train_audit):
+def _fit_strategy(strategy, train_raw, source_audit, train_clean, train_clean_audit):
     lr_spec = gb_spec = lr_oof = gb_oof = None
     if strategy in {"logistic", "logistic_calibrated", "blend_50_50"}:
-        lr_spec, _, lr_oof, _ = study.inner_search(train, train_audit, FINAL_FOLDS, study.LR_SPECS)
+        lr_spec, _, lr_oof, _ = study.inner_search(train_raw, source_audit, FINAL_FOLDS, study.LR_SPECS)
     if strategy in {"boosting", "boosting_calibrated", "blend_50_50"}:
-        gb_spec, _, gb_oof, _ = study.inner_search(train, train_audit, FINAL_FOLDS, study.GB_SPECS)
-    lr_model = study.fit(train, train_audit, lr_spec) if lr_spec else None
-    gb_model = study.fit(train, train_audit, gb_spec) if gb_spec else None
+        gb_spec, _, gb_oof, _ = study.inner_search(train_raw, source_audit, FINAL_FOLDS, study.GB_SPECS)
+    lr_model = study.fit(train_clean, train_clean_audit, lr_spec) if lr_spec else None
+    gb_model = study.fit(train_clean, train_clean_audit, gb_spec) if gb_spec else None
     lr_cal = gb_cal = None
     if strategy == "logistic_calibrated":
         lr_cal, status = study.train_calibrator(lr_oof[lr_spec["name"]], 17)
@@ -171,6 +172,10 @@ def evaluate_once(root: Path) -> dict:
     train_raw, train_source_audit, _ = study.load_train_only(root)
     reference = fit_scale_reference(train_raw)
     train, train_audit = prepare_amounts(train_raw, train_source_audit, reference)
+    strategy = protocol["selected_strategy"]
+    fitted = _fit_strategy(strategy, train_raw, train_source_audit, train, train_audit)
+
+    # Open test only after the strategy and its final train fit are ready.
     test_clean = load_table(root / "outputs", "test_clean.csv")
     test_audit = load_table(root / "outputs", "test_audit.csv")
     test_raw, test_source_audit = _raw_from_audit(test_audit)
@@ -185,8 +190,6 @@ def evaluate_once(root: Path) -> dict:
     if set(train.dispute_id) & set(test.dispute_id):
         raise ValueError("Train і test мають спільні dispute_id")
 
-    strategy = protocol["selected_strategy"]
-    fitted = _fit_strategy(strategy, train, train_audit)
     p = _probabilities(strategy, fitted, test, test_audit)
     classification, economics = evaluate(test, test_audit, p)
     y = test.won.to_numpy(dtype=int)

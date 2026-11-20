@@ -224,7 +224,7 @@ def run(root):
                     "baseline_predictions_reproduced": True, "train_audit_sha256": digest(root / "outputs" / "train_audit.csv"),
                     "prior_predictions_sha256": digest(old_path),
                     "versions": {"sklearn": sklearn.__version__, "pandas": pd.__version__, "numpy": np.__version__},
-                    "code_sha256": {name: digest(root / name) for name in ["interaction_study.py", "train_only_study.py", "model_comparison.py", "preparation.py"]},
+                    "code_sha256": {name: digest(root / "src" / name) for name in ["interaction_study.py", "train_only_study.py", "model_comparison.py", "preparation.py"]},
                     "result_sha256": {name: digest(output / f"{name}.csv") for name in tables}}
     (output / "run_evidence.json").write_text(json.dumps(run_evidence, indent=2), encoding="utf-8")
     print("Selected:", selection["selected_strategy"], flush=True)

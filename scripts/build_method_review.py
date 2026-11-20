@@ -6,7 +6,7 @@ import html
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT/"method_review_outputs"
 LABELS = {
  "constant_train_rate": "Постійна train-ймовірність", "logistic": "Логістична, внутрішній вибір C",
@@ -55,6 +55,7 @@ def relative(frame, baseline_id="logistic"):
 def build():
     import sys
     import os
+    sys.path.insert(0, str(ROOT / "src"))
     # Звіту дозволені тільки збережені оцінки validation, не його початкові рядки.
     def guard(event,args):
         if event!='open' or not isinstance(args[0],(str,bytes,os.PathLike)):
@@ -221,7 +222,7 @@ def build():
              ["method","psp","currency","rows","win_rate","mean_method_p","mean_lr_p","delta_vs_logistic_usd"])
     source_note="<ul>"+"".join(f"<li>{html.escape(str(Path(s['path']).relative_to(ROOT)))} — {s['sha256'][:16]}…</li>" for s in sources)+"</ul>"
     import base64
-    figure=ROOT/"weighted_weekly_outputs"/"weighted_weekly_comparison.png"
+    figure=OUTPUT/"weekly_delta_by_strategy.png"
     image_html='<section><h2>Графік щотижневої стійкості</h2><img style="max-width:100%;height:auto" alt="Різниця доходу методів і щотижнева стійкість" src="data:image/png;base64,'+base64.b64encode(figure.read_bytes()).decode()+'"></section>' if figure.exists() else ''
     body=f'''<!doctype html><html lang="uk"><meta charset="utf-8"><title>Порівняння методів спорів</title>
 <style>body{{font:15px/1.5 system-ui,sans-serif;margin:35px;color:#183044;background:#f7f9fc}}h1,h2{{color:#163a51}}section{{background:white;padding:22px;margin:20px 0;border-radius:12px}}.scroll{{overflow:auto}}table{{border-collapse:collapse;white-space:nowrap;width:100%}}th,td{{padding:8px 12px;border-bottom:1px solid #dde4ec;text-align:right}}th:first-child,td:first-child{{text-align:left}}th{{background:#eaf0f7}}.note{{background:#fff4d7;padding:15px;border-radius:8px}}small{{color:#536779}}a{{color:#216490}}</style>

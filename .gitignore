@@ -8,6 +8,7 @@ interaction_outputs/
 weighted_weekly_outputs/
 method_review_outputs/
 final_test_outputs/
+report_outputs/
 review_assets/
 catboost_info/
 *.joblib
