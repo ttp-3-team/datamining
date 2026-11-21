@@ -2,7 +2,7 @@
 from pathlib import Path
 import nbformat as nbf
 
-root = Path(__file__).resolve().parent
+root = Path(__file__).resolve().parent.parent
 cells = []
 def md(text):
     cells.append(nbf.v4.new_markdown_cell(text.strip()))
@@ -27,8 +27,9 @@ AI використано для допомоги з кодом і переві�
 Усі нові виходи — в `comparison_outputs/`.''')
 code('''from pathlib import Path
 import sys
-PROJECT_DIR = Path.cwd()
-if not (PROJECT_DIR / "model_comparison.py").exists():
+PROJECT_DIR = next(p for p in [Path.cwd(), *Path.cwd().parents] if (p / "src" / "preparation.py").exists())
+sys.path.insert(0, str(PROJECT_DIR / "src"))
+if not (PROJECT_DIR / "src" / "model_comparison.py").exists():
     raise FileNotFoundError("Задайте PROJECT_DIR: папку з model_comparison.py")
 sys.path.insert(0, str(PROJECT_DIR))
 import json

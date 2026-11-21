@@ -11,7 +11,7 @@ from validation_extension import digest, access_guard
 from preparation import load_table
 from model_comparison import predict, logits
 
-root = Path(__file__).resolve().parent
+root = Path(__file__).resolve().parent.parent
 opened = access_guard(root)
 output = root / "validation_extension_outputs"
 first = json.loads((output / "first_run_evidence.json").read_text(encoding="utf-8"))

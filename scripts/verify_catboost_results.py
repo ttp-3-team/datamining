@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import nbformat
 
-root = Path(__file__).resolve().parent
+root = Path(__file__).resolve().parent.parent
 output = root / "catboost_outputs"
 first = json.loads((output / "first_run_evidence.json").read_text(encoding="utf-8"))
 final = json.loads((output / "run_evidence.json").read_text(encoding="utf-8"))

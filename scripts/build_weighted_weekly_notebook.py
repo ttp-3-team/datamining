@@ -2,7 +2,7 @@
 from pathlib import Path
 import nbformat as nbf
 
-root=Path(__file__).resolve().parent
+root=Path(__file__).resolve().parent.parent
 cells=[]
 def md(s): cells.append(nbf.v4.new_markdown_cell(s.strip()))
 def code(s): cells.append(nbf.v4.new_code_cell(s.strip()))
@@ -23,8 +23,9 @@ RECOMPUTE=True. Це може тривати кілька хвилин.
 їхні абсолютні суми доходу не можна ранжувати разом.''')
 code('''from pathlib import Path
 import sys
-PROJECT_DIR=Path.cwd()
-if not (PROJECT_DIR/"weighted_weekly_study.py").exists():
+PROJECT_DIR=next(p for p in [Path.cwd(),*Path.cwd().parents] if (p/"src"/"preparation.py").exists())
+sys.path.insert(0,str(PROJECT_DIR/"src"))
+if not (PROJECT_DIR/"src"/"weighted_weekly_study.py").exists():
     raise FileNotFoundError("Задайте PROJECT_DIR")
 sys.path.insert(0,str(PROJECT_DIR))
 import json, hashlib, base64

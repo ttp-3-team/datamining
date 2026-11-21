@@ -14,7 +14,7 @@ import sys
 import nbformat
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def execute_notebook(path):
@@ -69,6 +69,6 @@ if __name__ == "__main__":
     else:
         for filename in ["01_data_review.ipynb", "02_prepare_data.ipynb"]:
             subprocess.run(
-                [sys.executable, "-B", str(Path(__file__).resolve()), str(ROOT / filename)],
+                [sys.executable, "-B", str(Path(__file__).resolve()), str(ROOT / "notebooks" / filename)],
                 check=True, timeout=90, cwd=ROOT,
             )

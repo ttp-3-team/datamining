@@ -303,7 +303,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=Path(__file__).resolve().parent.parent / "dataset.csv")
-    parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parent / "outputs")
+    parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parent.parent / "outputs")
     args = parser.parse_args()
     raw = pd.read_csv(args.input)
     clean, audits, reference = prepare_dataset(raw)

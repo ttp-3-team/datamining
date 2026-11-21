@@ -2,7 +2,7 @@
 from pathlib import Path
 import nbformat as nbf
 
-root = Path(__file__).resolve().parent
+root = Path(__file__).resolve().parent.parent
 cells = []
 def md(text):
     cells.append(nbf.v4.new_markdown_cell(text.strip()))
@@ -31,8 +31,9 @@ outputs/train_audit.csv та результати train_only_outputs/ з noteboo
 Виконати Restart and Run All. Усі нові виходи — interaction_outputs/.''')
 code('''from pathlib import Path
 import sys
-PROJECT_DIR = Path.cwd()
-if not (PROJECT_DIR / "interaction_study.py").exists():
+PROJECT_DIR = next(p for p in [Path.cwd(), *Path.cwd().parents] if (p / "src" / "preparation.py").exists())
+sys.path.insert(0, str(PROJECT_DIR / "src"))
+if not (PROJECT_DIR / "src" / "interaction_study.py").exists():
     raise FileNotFoundError("Задайте PROJECT_DIR: папку з interaction_study.py")
 sys.path.insert(0, str(PROJECT_DIR))
 import json

@@ -184,6 +184,6 @@ def run(root):
 if __name__ == "__main__":
     import sys
     if "--freeze-only" in sys.argv:
-        print(freeze(Path(__file__).resolve().parent)[1])
+        print(freeze(Path(__file__).resolve().parent.parent)[1])
     else:
-        run(Path(__file__).resolve().parent)
+        run(Path(__file__).resolve().parent.parent)

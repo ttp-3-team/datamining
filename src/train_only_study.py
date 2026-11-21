@@ -363,7 +363,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--freeze-only", action="store_true")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parent.parent
     if args.freeze_only:
         _, digest = freeze_protocol(root)
         print("Protocol frozen:", digest)

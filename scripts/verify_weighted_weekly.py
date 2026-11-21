@@ -9,7 +9,7 @@ from scipy.special import expit
 import weighted_weekly_study as study
 from model_comparison import logits
 
-root=Path(__file__).resolve().parent
+root=Path(__file__).resolve().parent.parent
 output=root/"weighted_weekly_outputs"
 access=study.base.install_data_access_guard(root)
 evidence=json.loads((output/"run_evidence.json").read_text(encoding="utf-8"))

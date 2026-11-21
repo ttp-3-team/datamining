@@ -285,7 +285,7 @@ def run(root):
 
 if __name__ == "__main__":
     import sys
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parent.parent
     if "--freeze-only" in sys.argv:
         print(freeze(root)[1])
     else:
