@@ -1,6 +1,5 @@
 """Зважена логістична регресія та щотижневий вкладений backtest, тільки train."""
 from pathlib import Path
-import hashlib
 import json
 import warnings
 
@@ -9,10 +8,13 @@ import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
 from threadpoolctl import threadpool_limits
 
-import train_only_study as base
-import interaction_study as interactions
-import catboost_study as cats
-from model_comparison import fit_model, predict as generic_predict, logits
+from disputes import train_only_study as base
+from disputes import interaction_study as interactions
+from disputes import catboost_study as cats
+from disputes.model_comparison import fit_model, predict as generic_predict, logits
+from disputes.protocol import sha256
+from disputes import protocol as proto
+from disputes.paths import PROJECT
 
 WEIGHT_MODES = ["none", "amount_p99", "sqrt_amount_p99"]
 WEEKLY_WEEKS = list(range(10, 18))
@@ -50,22 +52,10 @@ PROTOCOL = {
 }
 
 
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
 
 def freeze(root):
-    output = Path(root)/"weighted_weekly_outputs"
-    output.mkdir(exist_ok=True)
-    p = output/"protocol.json"
-    value = json.loads(json.dumps(PROTOCOL))
-    if p.exists():
-        if json.loads(p.read_text(encoding="utf-8")) != value:
-            raise ValueError("Протокол уже зафіксований і відрізняється")
-    else:
-        with p.open("x", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=2, ensure_ascii=False)
-    return output, digest(p)
+    """Зафіксувати протокол до читання даних."""
+    return proto.freeze(Path(root) / "weighted_weekly_outputs", PROTOCOL, "Протокол зваженого навчання")
 
 
 def sample_weights(data, mode):
@@ -263,7 +253,7 @@ def run(root):
         if regime == "primary":
             old_manifest = json.loads((root/"train_only_outputs"/"run_evidence.json").read_text(encoding="utf-8"))
             old_path = root/"train_only_outputs"/"outer_predictions.csv"
-            assert digest(old_path) == old_manifest["result_sha256"]["outer_predictions"]
+            assert sha256(old_path) == old_manifest["result_sha256"]["outer_predictions"]
             old = pd.read_csv(old_path, dtype={"dispute_id": "string"})
             for method in ["logistic", "logistic_calibrated"]:
                 current = predictions.loc[predictions.strategy.eq(method)].reset_index(drop=True)
@@ -277,15 +267,15 @@ def run(root):
         frame.to_csv(output/f"{name}.csv", index=False)
     evidence = {"protocol_sha256": protocol_hash, "actual_source_csv_open_events": access,
                 "baseline_predictions_reproduced": True, "validation_opened": False, "test_opened": False,
-                "code_sha256": {n: digest(root / "src" / n) for n in ["weighted_weekly_study.py", "train_only_study.py", "interaction_study.py", "catboost_study.py", "model_comparison.py", "preparation.py"]},
-                "result_sha256": {n: digest(output/f"{n}.csv") for n in tables}}
+                "code_sha256": proto.code_hashes("weighted_weekly_study.py", "train_only_study.py", "interaction_study.py", "catboost_study.py", "model_comparison.py", "preparation.py"),
+                "result_sha256": {n: sha256(output/f"{n}.csv") for n in tables}}
     (output/"run_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
     return tables["primary_summary"], tables["weekly_summary"], tables["weekly_periods"]
 
 
 if __name__ == "__main__":
     import sys
-    root = Path(__file__).resolve().parent.parent
+    root = PROJECT
     if "--freeze-only" in sys.argv:
         print(freeze(root)[1])
     else:

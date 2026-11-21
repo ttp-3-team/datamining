@@ -2,9 +2,9 @@
 import unittest
 import numpy as np
 import pandas as pd
-from model_comparison import (CANDIDATES, features, policy, profit_rows,
+from disputes.model_comparison import (CANDIDATES, features, policy, profit_rows,
                               temporal_fold, logits, fit_model, predict)
-from preparation import SOURCE_COLUMNS, normalize_source
+from disputes.preparation import SOURCE_COLUMNS, normalize_source
 
 
 class ModelChecks(unittest.TestCase):
@@ -97,7 +97,7 @@ class ModelChecks(unittest.TestCase):
 
     def test_all_feature_variants_ignore_target(self):
         audit = self.audit.copy()
-        from model_comparison import QUALITY
+        from disputes.model_comparison import QUALITY
         for col in QUALITY:
             audit[col] = False
         changed = self.data.copy()
@@ -107,7 +107,7 @@ class ModelChecks(unittest.TestCase):
                                           features(changed, audit, spec)[0])
 
     def test_group_without_scorable_amount_has_unknown_income(self):
-        from model_comparison import segment_diagnostics
+        from disputes.model_comparison import segment_diagnostics
         segments = segment_diagnostics(self.data, self.audit, np.array([.9, .1, .99, .8]), self.data)
         row = segments.query("field == 'amount_band' and group == 'MISSING'").iloc[0]
         self.assertEqual(row.evaluated_rows, 0)

@@ -1,6 +1,5 @@
 """Контрольоване додавання взаємодій до логістичної регресії, лише train."""
 from pathlib import Path
-import hashlib
 import json
 import warnings
 
@@ -14,8 +13,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 from threadpoolctl import threadpool_limits
 
-import train_only_study as previous
-from model_comparison import BASE_CATEGORIES, features, validate_probabilities
+from disputes import train_only_study as previous
+from disputes.model_comparison import BASE_CATEGORIES, features, validate_probabilities
+from disputes.protocol import sha256
+from disputes import protocol as proto
+from disputes.paths import PROJECT
 
 PAIRS = {"psp_currency": ("psp", "currency"), "psp_reason": ("psp", "reason_category")}
 VARIANTS = {"baseline": [], "psp_currency": ["psp_currency"], "psp_reason": ["psp_reason"],
@@ -35,22 +37,10 @@ PROTOCOL = {
 }
 
 
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
 
 def freeze(root):
-    output = Path(root) / "interaction_outputs"
-    output.mkdir(exist_ok=True)
-    path = output / "protocol.json"
-    canonical = json.loads(json.dumps(PROTOCOL))
-    if path.exists():
-        if json.loads(path.read_text(encoding="utf-8")) != canonical:
-            raise ValueError("Протокол взаємодій уже зафіксований і відрізняється")
-    else:
-        with path.open("x", encoding="utf-8") as stream:
-            json.dump(canonical, stream, ensure_ascii=False, indent=2)
-    return output, digest(path)
+    """Зафіксувати протокол до читання даних."""
+    return proto.freeze(Path(root) / "interaction_outputs", PROTOCOL, "Протокол взаємодій")
 
 
 def make_features(data, audit, variant):
@@ -203,7 +193,7 @@ def run(root):
     # Звірити базову модель з попереднім вкладеним train-only дослідженням.
     evidence = json.loads((root / "train_only_outputs" / "run_evidence.json").read_text(encoding="utf-8"))
     old_path = root / "train_only_outputs" / "outer_predictions.csv"
-    if digest(old_path) != evidence["result_sha256"]["outer_predictions"]:
+    if sha256(old_path) != evidence["result_sha256"]["outer_predictions"]:
         raise ValueError("Попередні train-only прогнози змінилися")
     old = pd.read_csv(old_path, dtype={"dispute_id": "string"})
     old = old.loc[old.strategy.eq("logistic")].reset_index(drop=True)
@@ -221,11 +211,11 @@ def run(root):
     (output / "selection.json").write_text(json.dumps(selection, ensure_ascii=False, indent=2), encoding="utf-8")
     import sklearn
     run_evidence = {"protocol_sha256": protocol_hash, "actual_source_csv_open_events": access,
-                    "baseline_predictions_reproduced": True, "train_audit_sha256": digest(root / "outputs" / "train_audit.csv"),
-                    "prior_predictions_sha256": digest(old_path),
+                    "baseline_predictions_reproduced": True, "train_audit_sha256": sha256(root / "outputs" / "train_audit.csv"),
+                    "prior_predictions_sha256": sha256(old_path),
                     "versions": {"sklearn": sklearn.__version__, "pandas": pd.__version__, "numpy": np.__version__},
-                    "code_sha256": {name: digest(root / "src" / name) for name in ["interaction_study.py", "train_only_study.py", "model_comparison.py", "preparation.py"]},
-                    "result_sha256": {name: digest(output / f"{name}.csv") for name in tables}}
+                    "code_sha256": proto.code_hashes("interaction_study.py", "train_only_study.py", "model_comparison.py", "preparation.py"),
+                    "result_sha256": {name: sha256(output / f"{name}.csv") for name in tables}}
     (output / "run_evidence.json").write_text(json.dumps(run_evidence, indent=2), encoding="utf-8")
     print("Selected:", selection["selected_strategy"], flush=True)
     return summary, periods, choices, coverage, selection
@@ -233,7 +223,7 @@ def run(root):
 
 if __name__ == "__main__":
     import sys
-    root = Path(__file__).resolve().parent.parent
+    root = PROJECT
     if "--freeze-only" in sys.argv:
         print(freeze(root)[1])
     else:

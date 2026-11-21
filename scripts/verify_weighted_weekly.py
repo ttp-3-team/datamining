@@ -1,23 +1,24 @@
 """Незалежні Score-перевірки та повторне навчання двох контрольних тижнів."""
-from pathlib import Path
 import json
 import numpy as np
 import pandas as pd
 import nbformat
 from scipy.special import expit
 
-import weighted_weekly_study as study
-from model_comparison import logits
+from disputes import weighted_weekly_study as study
+from disputes.model_comparison import logits
+from disputes.paths import EXECUTED_NOTEBOOKS, PROJECT
+from disputes.protocol import sha256
 
-root=Path(__file__).resolve().parent.parent
+root = PROJECT
 output=root/"weighted_weekly_outputs"
 access=study.base.install_data_access_guard(root)
 evidence=json.loads((output/"run_evidence.json").read_text(encoding="utf-8"))
 assert set(evidence["actual_source_csv_open_events"])=={"train_audit.csv"}
 for name,h in evidence["code_sha256"].items():
-    assert study.digest(root/name)==h
+    assert sha256(root/name)==h
 for name,h in evidence["result_sha256"].items():
-    assert study.digest(output/f"{name}.csv")==h
+    assert sha256(output/f"{name}.csv")==h
 score_checks=0
 all_predictions={}
 for regime in ["primary","weekly"]:
@@ -100,7 +101,7 @@ for week in [10,17]:
     anchors.append({"week":week,"methods_reproduced":len(probabilities)})
     print(f"Fresh anchor week {week}: all methods reproduced",flush=True)
 
-nb=nbformat.read(root/"09_weighted_weekly_study.ipynb",as_version=4)
+nb=nbformat.read(EXECUTED_NOTEBOOKS / "09_weighted_weekly_study.ipynb",as_version=4)
 nbformat.validate(nb)
 code=[c for c in nb.cells if c.cell_type=="code"]
 assert all(c.execution_count and not any(o.output_type=="error" for o in c.outputs) for c in code)

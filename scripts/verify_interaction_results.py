@@ -1,12 +1,12 @@
 """Звірити повторення експерименту та незалежно перерахувати його Score."""
-from pathlib import Path
 import json
 import numpy as np
 import pandas as pd
 import nbformat
-from interaction_study import digest
+from disputes.protocol import sha256 as digest
+from disputes.paths import EXECUTED_NOTEBOOKS, PROJECT
 
-root = Path(__file__).resolve().parent.parent
+root = PROJECT
 output = root / "interaction_outputs"
 first = json.loads((output / "first_run_evidence.json").read_text(encoding="utf-8"))
 final = json.loads((output / "run_evidence.json").read_text(encoding="utf-8"))
@@ -35,7 +35,7 @@ assert set(inner.C.unique()) == {.01, .1, 1., 10., 100.}
 selection = json.loads((output/"selection.json").read_text(encoding="utf-8"))
 assert selection["diagnostic_fixed_C_0_1_excluded"]
 assert selection["selected_strategy"] != "fixed_C_0_1"
-nb = nbformat.read(root/"08_logistic_interactions.ipynb", as_version=4)
+nb = nbformat.read(EXECUTED_NOTEBOOKS / "08_logistic_interactions.ipynb", as_version=4)
 nbformat.validate(nb)
 code = [c for c in nb.cells if c.cell_type == "code"]
 assert all(c.execution_count and not any(o.output_type == "error" for o in c.outputs) for c in code)

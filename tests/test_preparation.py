@@ -1,4 +1,4 @@
-"""Перевірки підготовки; запуск: python -m unittest -v test_preparation."""
+"""Перевірки підготовки на реальному dataset.csv (пропускаються, якщо датасету немає)."""
 
 import io
 from pathlib import Path
@@ -9,17 +9,17 @@ import zipfile
 import numpy as np
 import pandas as pd
 
-from preparation import (
-    SOURCE_COLUMNS, calculate_baseline, export_results, fit_scale_reference,
-    load_table, normalize_source, prepare_amounts, prepare_dataset, split_by_time,
+from disputes.paths import DATASET, PROJECT
+from disputes.preparation import (
+    SOURCE_COLUMNS, calculate_baseline, export_results, load_table, normalize_source, prepare_amounts, prepare_dataset,
 )
 
 
-ROOT = Path(__file__).resolve().parent
-SOURCE = ROOT.parent / "dataset.csv"
-OLD_EXPORT = ROOT.parent / "handoff_20261120_005640.zip"
+SOURCE = DATASET
+OLD_EXPORT = PROJECT / "handoff_20261120_005640.zip"
 
 
+@unittest.skipUnless(SOURCE.exists(), "dataset.csv не входить до репозиторію")
 class PreparationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

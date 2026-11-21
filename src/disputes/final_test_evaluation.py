@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from preparation import (
+from disputes.preparation import (
     SOURCE_COLUMNS, fit_scale_reference, load_table, normalize_source,
     prepare_amounts,
 )
-import train_only_study as study
-from model_comparison import evaluate, predict
+from disputes import train_only_study as study
+from disputes.model_comparison import evaluate, predict
+from disputes import protocol as proto
+from disputes.protocol import sha256
 
 FINAL_FOLDS = [[5, 9], [9, 13], [13, 17]]
 SUPPORTED_STRATEGIES = {
     "logistic", "logistic_calibrated", "boosting", "boosting_calibrated", "blend_50_50"
 }
 
-
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def freeze_protocol(root: Path) -> dict:
@@ -44,8 +42,6 @@ def freeze_protocol(root: Path) -> dict:
     output = root / "final_test_outputs"
     output.mkdir(exist_ok=True)
     lock_path = output / "final_protocol.json"
-    code_files = ["src/final_test_evaluation.py", "src/train_only_study.py",
-                  "src/model_comparison.py", "src/preparation.py"]
     protocol = {
         "version": 1,
         "selected_strategy": strategy,
@@ -53,8 +49,9 @@ def freeze_protocol(root: Path) -> dict:
         "selection_sha256": sha256(selection_path),
         "train_only_evidence_sha256": sha256(evidence_path),
         "train_audit_sha256": sha256(train_audit_path),
-        "code_sha256": {name: sha256(root / name) for name in code_files},
-        "requirements_sha256": sha256(root / "requirements_comparison.txt"),
+        "code_sha256": proto.code_hashes("final_test_evaluation.py", "train_only_study.py",
+                                        "model_comparison.py", "preparation.py"),
+        "lockfile_sha256": sha256(root / "uv.lock"),
         "inner_folds": FINAL_FOLDS,
         "decision_rule": "p * 0.2 * amount_usd > 6; unavailable amount -> review_amount",
         "test_opened": False,
@@ -130,7 +127,7 @@ def _calibration_bins(y, p, bins=10):
 
 
 def _economic_segments(data, audit, p, segment: pd.Series) -> list[dict]:
-    from model_comparison import policy, profit_rows
+    from disputes.model_comparison import policy, profit_rows
 
     actions = policy(data, audit, p)
     profit = profit_rows(data, audit, p)
@@ -164,9 +161,9 @@ def evaluate_once(root: Path) -> dict:
     evidence_path = root / "train_only_outputs" / "run_evidence.json"
     if sha256(selection_path) != protocol["selection_sha256"] or sha256(evidence_path) != protocol["train_only_evidence_sha256"]:
         raise ValueError("Train-only вибір або докази змінилися після фіксації протоколу")
-    if any(sha256(root / name) != digest for name, digest in protocol["code_sha256"].items()):
+    if not proto.code_hashes_match(protocol["code_sha256"]):
         raise ValueError("Код моделі змінився після фіксації фінального протоколу")
-    if sha256(root / "requirements_comparison.txt") != protocol["requirements_sha256"]:
+    if sha256(root / "uv.lock") != protocol["lockfile_sha256"]:
         raise ValueError("Залежності змінилися після фіксації фінального протоколу")
 
     train_raw, train_source_audit, _ = study.load_train_only(root)
@@ -235,3 +232,16 @@ def evaluate_once(root: Path) -> dict:
         json.dump(report, stream, ensure_ascii=False, indent=2, allow_nan=False)
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     return report
+
+
+if __name__ == "__main__":
+    import argparse
+
+    from disputes.paths import PROJECT
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--freeze-only", action="store_true",
+                        help="Зафіксувати train-only вибір, не відкриваючи test.")
+    args = parser.parse_args()
+    result = freeze_protocol(PROJECT) if args.freeze_only else evaluate_once(PROJECT)
+    print(json.dumps(result, ensure_ascii=False, indent=2))

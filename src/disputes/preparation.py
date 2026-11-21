@@ -2,11 +2,12 @@
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-import hashlib
 import json
 
 import numpy as np
 import pandas as pd
+from disputes.protocol import sha256
+from disputes.paths import DATASET, OUTPUTS
 
 
 SOURCE_COLUMNS = [
@@ -247,7 +248,7 @@ def export_results(clean, audits, reference, source_path, output_dir, settings=S
     output.mkdir(parents=True, exist_ok=True)
     manifest = {
         "preparation_version": VERSION, "settings": asdict(settings),
-        "source_sha256": hashlib.sha256(Path(source_path).read_bytes()).hexdigest(),
+        "source_sha256": sha256(Path(source_path)),
         "pandas_version": pd.__version__, "numpy_version": np.__version__, "files": {},
         "notes": [
             "Модель не навчалася. Пропуски збережені; кодування і стандартизація не виконані.",
@@ -269,7 +270,7 @@ def export_results(clean, audits, reference, source_path, output_dir, settings=S
         manifest["files"][filename] = {
             "rows": len(table), "columns": list(table.columns),
             "dtypes": {col: str(dtype) for col, dtype in table.dtypes.items()},
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "sha256": sha256(path),
         }
     features = {
         "target": "won", "identifier": "dispute_id",
@@ -293,7 +294,7 @@ def load_table(output_dir, filename):
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     spec = manifest["files"][filename]
     path = output / filename
-    if hashlib.sha256(path.read_bytes()).hexdigest() != spec["sha256"]:
+    if sha256(path) != spec["sha256"]:
         raise ValueError(f"Файл {filename} змінився після експорту.")
     # raw__ поля залишають буквальні '?' і '-'; порожнє поле означає пропуск.
     return pd.read_csv(path, dtype=spec["dtypes"], keep_default_na=False, na_values=[""])
@@ -302,8 +303,8 @@ def load_table(output_dir, filename):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=Path(__file__).resolve().parent.parent / "dataset.csv")
-    parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parent.parent / "outputs")
+    parser.add_argument("--input", type=Path, default=DATASET)
+    parser.add_argument("--output", type=Path, default=OUTPUTS)
     args = parser.parse_args()
     raw = pd.read_csv(args.input)
     clean, audits, reference = prepare_dataset(raw)

@@ -1,14 +1,15 @@
 """Перевірка повноти зведення та всіх відносних оцінок."""
 from pathlib import Path
 import json
-import hashlib
 import numpy as np
 import pandas as pd
+from disputes.paths import PROJECT
+from disputes.protocol import sha256
 
-root=Path(__file__).resolve().parent.parent
+root = PROJECT
 folder=root/"method_review_outputs"
 evidence=json.loads((folder/"report_evidence.json").read_text(encoding="utf-8"))
-digest=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+digest=lambda p:sha256(Path(p))
 for source in evidence["sources"]:
     p=Path(source["path"])
     assert not (p.parent==root/"outputs")

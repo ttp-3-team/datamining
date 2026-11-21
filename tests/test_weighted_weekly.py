@@ -1,8 +1,8 @@
 import unittest
 import numpy as np
 import pandas as pd
-import weighted_weekly_study as study
-from test_train_only_study import synthetic_source
+from disputes import weighted_weekly_study as study
+from synthetic import synthetic_source
 
 
 class WeightAndTimeChecks(unittest.TestCase):

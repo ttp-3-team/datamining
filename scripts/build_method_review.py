@@ -1,12 +1,13 @@
 """Об'єднати збережені оцінки методів; нових прогнозів validation/test немає."""
 from pathlib import Path
-import hashlib
 import json
 import html
 import numpy as np
 import pandas as pd
+from disputes.paths import PROJECT
+from disputes.protocol import sha256
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = PROJECT
 OUTPUT = ROOT/"method_review_outputs"
 LABELS = {
  "constant_train_rate": "Постійна train-ймовірність", "logistic": "Логістична, внутрішній вибір C",
@@ -23,7 +24,7 @@ LABELS = {
 
 
 def digest(p):
-    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+    return sha256(Path(p))
 
 
 def read_verified(folder, filename, manifest=None):
@@ -153,7 +154,7 @@ def build():
         eligible=g.loc[g.scenario.eq("eligible")]
         observed=g.loc[g.scenario.eq("observed_only")]
         oof=load("comparison_outputs",f"oof_{candidate}.csv")
-        from train_only_study import probability_metrics
+        from disputes.train_only_study import probability_metrics
         metrics=probability_metrics(oof.won,oof.p)
         trial_rows.append({"candidate":candidate,"score_usd":eligible.score_usd.sum(),
                           "evaluated_rows":int(eligible.rows.sum()),"observed_score_usd":observed.score_usd.sum(),

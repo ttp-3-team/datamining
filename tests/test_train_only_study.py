@@ -8,17 +8,8 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-import train_only_study as study
-from preparation import SOURCE_COLUMNS, normalize_source
-
-
-def synthetic_source():
-    rows = []
-    for week in range(18):
-        for j in range(16):
-            rows.append([f"{week}_{j}", f"M{j % 3}", "P", "card", "visa", "fraud", "10.4",
-                         "USD", 40. + j, 40. + j, week, j % 7, int(j % 3 != 0)])
-    return normalize_source(pd.DataFrame(rows, columns=SOURCE_COLUMNS))
+from disputes import train_only_study as study
+from synthetic import synthetic_source
 
 
 class NestedChecks(unittest.TestCase):

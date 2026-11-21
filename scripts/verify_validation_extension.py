@@ -1,5 +1,4 @@
 """Перевірити повторення, рядковий Score, розбіжності та збережені моделі."""
-from pathlib import Path
 import json
 import numpy as np
 import pandas as pd
@@ -7,11 +6,14 @@ import nbformat
 import joblib
 from catboost import CatBoostClassifier
 
-from validation_extension import digest, access_guard
-from preparation import load_table
-from model_comparison import predict, logits
+from disputes.protocol import sha256 as digest
+from disputes.validation_extension import access_guard
+from disputes.preparation import load_table
+from disputes.model_comparison import predict, logits
+from disputes.paths import EXECUTED_NOTEBOOKS, PROJECT
+from disputes import protocol as proto
 
-root = Path(__file__).resolve().parent.parent
+root = PROJECT
 opened = access_guard(root)
 output = root / "validation_extension_outputs"
 first = json.loads((output / "first_run_evidence.json").read_text(encoding="utf-8"))
@@ -20,7 +22,7 @@ same = {name: value == final["result_sha256"][name] for name, value in first["re
 assert all(same.values()), same
 assert first["protocol_sha256"] == final["protocol_sha256"]
 assert first["train_parameter_lock_sha256"] == final["train_parameter_lock_sha256"]
-assert final["code_sha256"] == digest(root / "validation_extension.py")
+assert proto.code_hashes_match(final["code_sha256"])
 assert first["prior_validation_predictions_sha256"] == digest(root / "comparison_outputs" / "validation_predictions.csv")
 assert set(final["actual_input_csv_open_events"]) == {"train_audit.csv", "train_clean.csv", "validation_clean.csv", "validation_audit.csv"}
 
@@ -64,7 +66,7 @@ for family, raw, target in [("lr", lp, "p_logistic_train_tuned_calibrated"), ("c
     probability = raw if cal[family] is None else cal[family].predict_proba(logits(raw))[:, 1]
     np.testing.assert_allclose(probability, p[target], atol=1e-12)
 
-nb = nbformat.read(root / "07_validation_and_disagreements.ipynb", as_version=4)
+nb = nbformat.read(EXECUTED_NOTEBOOKS / "07_validation_and_disagreements.ipynb", as_version=4)
 nbformat.validate(nb)
 code = [c for c in nb.cells if c.cell_type == "code"]
 assert all(c.execution_count and not any(x.output_type == "error" for x in c.outputs) for c in code)

@@ -1,15 +1,16 @@
 """CatBoost у тій самій вкладеній train-only схемі, без зміни попередніх результатів."""
 from pathlib import Path
-import hashlib
 import json
 
 import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
-from threadpoolctl import threadpool_limits
 
-import train_only_study as previous
-from model_comparison import features, predict, logits
+from disputes import train_only_study as previous
+from disputes.model_comparison import features, predict, logits
+from disputes.protocol import sha256
+from disputes import protocol as proto
+from disputes.paths import PROJECT
 
 SPECS = [{"name": f"cat_d{depth}_l2_{l2}", "kind": "catboost", "depth": depth, "l2": l2}
          for depth in [4, 6] for l2 in [3., 10.]]
@@ -31,17 +32,8 @@ PROTOCOL = {
 
 
 def freeze(root):
-    output = Path(root) / "catboost_outputs"
-    output.mkdir(exist_ok=True)
-    p = output / "protocol.json"
-    value = json.loads(json.dumps(PROTOCOL))
-    if p.exists():
-        if json.loads(p.read_text(encoding="utf-8")) != value:
-            raise ValueError("Наявний протокол CatBoost відрізняється; не перезаписувати після результатів")
-    else:
-        with p.open("x", encoding="utf-8") as stream:
-            json.dump(value, stream, ensure_ascii=False, indent=2)
-    return output, hashlib.sha256(p.read_bytes()).hexdigest()
+    """Зафіксувати протокол до читання даних."""
+    return proto.freeze(Path(root) / "catboost_outputs", PROTOCOL, "Протокол CatBoost")
 
 
 def fit_cat(data, audit, spec):
@@ -79,9 +71,9 @@ def load_baselines(root):
     folder = Path(root) / "train_only_outputs"
     evidence = json.loads((folder / "run_evidence.json").read_text(encoding="utf-8"))
     path = folder / "outer_predictions.csv"
-    if hashlib.sha256(path.read_bytes()).hexdigest() != evidence["result_sha256"]["outer_predictions"]:
+    if sha256(path) != evidence["result_sha256"]["outer_predictions"]:
         raise ValueError("Попередні train-only прогнози змінилися")
-    if hashlib.sha256((Path(root) / "outputs" / "train_audit.csv").read_bytes()).hexdigest() != evidence["train_audit_sha256"]:
+    if sha256((Path(root) / "outputs" / "train_audit.csv")) != evidence["train_audit_sha256"]:
         raise ValueError("Train-аудит відрізняється від попереднього експерименту")
     return pd.read_csv(path, dtype={"dispute_id": "string", "outer_period": "string"}), evidence
 
@@ -117,7 +109,7 @@ def run(root):
     data, audit, _ = previous.load_train_only(root)
     baselines, old_evidence = load_baselines(root)
     calibration_file = root / "train_only_outputs" / "calibration_status.csv"
-    if hashlib.sha256(calibration_file.read_bytes()).hexdigest() != old_evidence["result_sha256"]["calibration_status"]:
+    if sha256(calibration_file) != old_evidence["result_sha256"]["calibration_status"]:
         raise ValueError("Попередній статус калібрування змінився")
     old_calibration = pd.read_csv(calibration_file)
     frames, calibrations, records, choices, oof_frames = [], [], [], [], []
@@ -173,9 +165,8 @@ def run(root):
     import catboost
     evidence = {"protocol_sha256": digest, "actual_source_csv_open_events": access,
                 "catboost_version": catboost.__version__, "prior_evidence": old_evidence,
-                "code_sha256": {n: hashlib.sha256((root / "src" / n).read_bytes()).hexdigest() for n in
-                                ["catboost_study.py", "train_only_study.py", "model_comparison.py", "preparation.py"]},
-                "result_sha256": {n: hashlib.sha256((output/f"{n}.csv").read_bytes()).hexdigest() for n in tables}}
+                "code_sha256": proto.code_hashes("catboost_study.py", "train_only_study.py", "model_comparison.py", "preparation.py"),
+                "result_sha256": {n: sha256((output/f"{n}.csv")) for n in tables}}
     (output / "run_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
     print("Selected:", selection["selected_strategy"], flush=True)
     return summary, periods, calibration, selection
@@ -184,6 +175,6 @@ def run(root):
 if __name__ == "__main__":
     import sys
     if "--freeze-only" in sys.argv:
-        print(freeze(Path(__file__).resolve().parent.parent)[1])
+        print(freeze(PROJECT)[1])
     else:
-        run(Path(__file__).resolve().parent.parent)
+        run(PROJECT)

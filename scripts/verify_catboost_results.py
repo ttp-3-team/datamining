@@ -1,12 +1,12 @@
 """Незалежно перевірити підсумкові CSV, повторення та виконаний ноутбук."""
-from pathlib import Path
-import hashlib
 import json
 import numpy as np
 import pandas as pd
 import nbformat
+from disputes.paths import EXECUTED_NOTEBOOKS, PROJECT
+from disputes.protocol import sha256
 
-root = Path(__file__).resolve().parent.parent
+root = PROJECT
 output = root / "catboost_outputs"
 first = json.loads((output / "first_run_evidence.json").read_text(encoding="utf-8"))
 final = json.loads((output / "run_evidence.json").read_text(encoding="utf-8"))
@@ -15,9 +15,9 @@ assert all(checks.values()), checks
 assert first["protocol_sha256"] == final["protocol_sha256"]
 assert set(final["actual_source_csv_open_events"]) == {"train_audit.csv"}
 for name, digest in final["code_sha256"].items():
-    assert hashlib.sha256((root/name).read_bytes()).hexdigest() == digest
+    assert sha256((root/name)) == digest
 for name, digest in final["prior_evidence"]["result_sha256"].items():
-    assert hashlib.sha256((root / "train_only_outputs" / f"{name}.csv").read_bytes()).hexdigest() == digest
+    assert sha256((root / "train_only_outputs" / f"{name}.csv")) == digest
 
 predictions = pd.read_csv(output / "outer_predictions.csv")
 summary = pd.read_csv(output / "strategy_summary.csv").set_index("strategy")
@@ -37,7 +37,7 @@ for period, frame in oof.groupby("outer_period"):
     assert frame.dispute_id.is_unique
     assert frame.dispute_week.max() < int(period.split("-")[0])
 
-nb = nbformat.read(root / "06_catboost_train_only.ipynb", as_version=4)
+nb = nbformat.read(EXECUTED_NOTEBOOKS / "06_catboost_train_only.ipynb", as_version=4)
 nbformat.validate(nb)
 code = [c for c in nb.cells if c.cell_type == "code"]
 assert all(c.execution_count and not any(o.output_type == "error" for o in c.outputs) for c in code)

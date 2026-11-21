@@ -1,16 +1,19 @@
 """Доповнення validation: параметри тільки з train, діагностика розбіжностей."""
 from pathlib import Path
-import hashlib
 import json
 import itertools
 
 import numpy as np
 import pandas as pd
 
-from preparation import load_table
-import train_only_study as train_study
-import catboost_study as cat_study
-from model_comparison import predict, logits, evaluate, policy, profit_rows
+from disputes.preparation import load_table
+from disputes import train_only_study as train_study
+from disputes import catboost_study as cat_study
+from disputes.model_comparison import predict, logits, evaluate, policy, profit_rows
+from disputes.protocol import sha256
+from disputes import protocol as proto
+from disputes.protocol import verified_csv
+from disputes.paths import PROJECT
 
 PROTOCOL = {
     "version": "1.0", "input_splits": ["train", "validation"], "test_opened": False,
@@ -30,22 +33,10 @@ PROTOCOL = {
 }
 
 
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
 
 def freeze(root):
-    output = Path(root) / "validation_extension_outputs"
-    output.mkdir(exist_ok=True)
-    path = output / "protocol.json"
-    value = json.loads(json.dumps(PROTOCOL))
-    if path.exists():
-        if json.loads(path.read_text(encoding="utf-8")) != value:
-            raise ValueError("Протокол доповнення validation уже зафіксовано й він відрізняється")
-    else:
-        with path.open("x", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=2, ensure_ascii=False)
-    return output, digest(path)
+    """Зафіксувати протокол до читання даних."""
+    return proto.freeze(Path(root) / "validation_extension_outputs", PROTOCOL, "Протокол доповнення validation")
 
 
 def access_guard(root):
@@ -68,17 +59,12 @@ def access_guard(root):
     return opened
 
 
-def verified_csv(path, expected, **kwargs):
-    if digest(path) != expected:
-        raise ValueError(f"Контрольна сума {Path(path).name} не збігається")
-    return pd.read_csv(path, **kwargs)
-
 
 def fit_train_parameters(root):
     """Повністю завершити вибір параметрів і навчання до відкриття validation."""
     normalized, source_audit, _ = train_study.load_train_only(root)
     prior = json.loads((root / "train_only_outputs" / "run_evidence.json").read_text(encoding="utf-8"))
-    if digest(root / "outputs" / "train_audit.csv") != prior["train_audit_sha256"]:
+    if sha256(root / "outputs" / "train_audit.csv") != prior["train_audit_sha256"]:
         raise ValueError("Train відрізняється від попереднього підбору C")
     ranking = verified_csv(root / "train_only_outputs" / "C_grid_summary.csv", prior["result_sha256"]["C_grid_summary"])
     ranking = ranking.sort_values(["score_usd", "log_loss", "C"], ascending=[False, True, True])
@@ -262,10 +248,10 @@ def run(root):
     joblib.dump({"lr": lr_cal, "catboost": cat_cal}, output / "train_calibrators.joblib")
     evidence = {"protocol_sha256": protocol_hash, "actual_input_csv_open_events": opened,
                 "test_opened": False, "validation_previously_used": True,
-                "code_sha256": digest(root / "src" / "validation_extension.py"),
-                "train_parameter_lock_sha256": digest(lock),
-                "prior_validation_predictions_sha256": digest(root / "comparison_outputs" / "validation_predictions.csv"),
-                "result_sha256": {name: digest(output / f"{name}.csv") for name in tables}}
+                "code_sha256": proto.code_hashes("validation_extension.py"),
+                "train_parameter_lock_sha256": sha256(lock),
+                "prior_validation_predictions_sha256": sha256(root / "comparison_outputs" / "validation_predictions.csv"),
+                "result_sha256": {name: sha256(output / f"{name}.csv") for name in tables}}
     (output / "run_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
     print("Validation extension complete; test was not opened", flush=True)
     return summary, pairwise, decision_groups, locked
@@ -273,7 +259,7 @@ def run(root):
 
 if __name__ == "__main__":
     import sys
-    root = Path(__file__).resolve().parent.parent
+    root = PROJECT
     if "--freeze-only" in sys.argv:
         print(freeze(root)[1])
     else:

@@ -1,11 +1,10 @@
 import unittest
 from unittest.mock import patch
 import numpy as np
-import pandas as pd
 
-import catboost_study as study
-from test_train_only_study import synthetic_source
-from model_comparison import features, predict
+from disputes import catboost_study as study
+from synthetic import synthetic_source
+from disputes.model_comparison import features, predict
 
 
 class CatBoostChecks(unittest.TestCase):

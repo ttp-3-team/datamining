@@ -1,7 +1,9 @@
-"""Виконати Python-комірки кожного ноутбука в окремому процесі.
+"""Виконати ноутбуки без Jupyter і зберегти виконані копії в build/notebooks/.
 
-Не потребує запущеного Jupyter. Ноутбуки цього пакета не містять магічних команд.
-Результати print/display зберігаються у стандартному форматі ipynb.
+Кожен ноутбук виконується в окремому процесі. Ноутбуки в notebooks/ лишаються
+без виводів (у виводах можуть бути рядки даних, а датасет не публікується).
+
+    uv run python scripts/check_notebooks.py 05_train_only_nested_study [06_...]
 """
 
 import contextlib
@@ -12,17 +14,15 @@ import subprocess
 import sys
 
 import nbformat
+from disputes.paths import EXECUTED_NOTEBOOKS, NOTEBOOKS, PROJECT
 
 
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def execute_notebook(path):
+def execute_notebook(path, target):
     import IPython.display
 
     notebook = nbformat.read(path, as_version=4)
     namespace = {"__name__": "__main__"}
-    os.chdir(path.parent)
+    os.chdir(PROJECT)
     execution_count = 0
     for cell in notebook.cells:
         if cell.cell_type != "code":
@@ -59,16 +59,20 @@ def execute_notebook(path):
         "python": sys.version.split()[0],
     }
     nbformat.validate(notebook)
-    nbformat.write(notebook, path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    nbformat.write(notebook, target)
     print(f"{path.name}: {execution_count} code cells OK", flush=True)
 
 
+def notebook_path(name):
+    return NOTEBOOKS / (Path(name).stem + ".ipynb")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) == 2:
-        execute_notebook(Path(sys.argv[1]).resolve())
+    names = sys.argv[1:] or sorted(p.stem for p in NOTEBOOKS.glob("*.ipynb"))
+    if len(names) == 1:
+        source = notebook_path(names[0])
+        execute_notebook(source, EXECUTED_NOTEBOOKS / source.name)
     else:
-        for filename in ["01_data_review.ipynb", "02_prepare_data.ipynb"]:
-            subprocess.run(
-                [sys.executable, "-B", str(Path(__file__).resolve()), str(ROOT / "notebooks" / filename)],
-                check=True, timeout=90, cwd=ROOT,
-            )
+        for name in names:
+            subprocess.run([sys.executable, "-B", str(Path(__file__).resolve()), name], check=True, cwd=PROJECT)

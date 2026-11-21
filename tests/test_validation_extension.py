@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import pandas as pd
-from validation_extension import pair_details, pair_summary
+from disputes.validation_extension import pair_details, pair_summary
 
 
 class DisagreementChecks(unittest.TestCase):

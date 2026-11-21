@@ -1,6 +1,5 @@
 """Вкладене часове порівняння стратегій. Доступ лише до train_audit.csv."""
 from pathlib import Path
-import hashlib
 import json
 import warnings
 
@@ -11,8 +10,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss, brier_score_loss, roc_auc_score
 from threadpoolctl import threadpool_limits
 
-from preparation import SOURCE_COLUMNS, load_table, normalize_source, fit_scale_reference, prepare_amounts
-from model_comparison import CANDIDATES, features, new_model, predict, logits, policy, profit_rows
+from disputes.preparation import SOURCE_COLUMNS, load_table, normalize_source, fit_scale_reference, prepare_amounts
+from disputes.model_comparison import CANDIDATES, features, new_model, predict, logits, profit_rows
+from disputes.protocol import sha256
+from disputes import protocol as proto
+from disputes.paths import PROJECT
 
 C_VALUES = [.01, .1, 1., 10., 100.]
 LR_SPECS = [{"name": f"lr_C_{c:g}", "kind": "logistic", "C": c} for c in C_VALUES]
@@ -47,18 +49,8 @@ PROTOCOL = {
 
 
 def freeze_protocol(root):
-    """Викликати до завантаження даних / отримання нових результатів."""
-    output = Path(root) / "train_only_outputs"
-    output.mkdir(exist_ok=True)
-    path = output / "protocol.json"
-    canonical = json.loads(json.dumps(PROTOCOL))
-    if path.exists():
-        if json.loads(path.read_text(encoding="utf-8")) != canonical:
-            raise ValueError("Протокол уже зафіксований і відрізняється. Не перезаписувати після перегляду результатів.")
-    else:
-        with path.open("x", encoding="utf-8") as stream:
-            json.dump(canonical, stream, ensure_ascii=False, indent=2)
-    return output, hashlib.sha256(path.read_bytes()).hexdigest()
+    """Зафіксувати протокол до читання даних."""
+    return proto.freeze(Path(root) / "train_only_outputs", PROTOCOL, "Протокол train-only")
 
 
 def load_train_only(root):
@@ -347,12 +339,11 @@ def run(root):
     import sys
     evidence = {"protocol_sha256": protocol_hash, "opened_data_tables": access_log,
                 "observed_input_csv_open_events": observed_access,
-                "train_audit_sha256": hashlib.sha256((root / "outputs" / "train_audit.csv").read_bytes()).hexdigest(),
-                "code_sha256": {p: hashlib.sha256((root / "src" / p).read_bytes()).hexdigest() for p in
-                                ["train_only_study.py", "model_comparison.py", "preparation.py"]},
+                "train_audit_sha256": sha256((root / "outputs" / "train_audit.csv")),
+                "code_sha256": proto.code_hashes("train_only_study.py", "model_comparison.py", "preparation.py"),
                 "versions": {"python": sys.version.split()[0], "sklearn": sklearn.__version__,
                              "pandas": pd.__version__, "numpy": np.__version__},
-                "result_sha256": {name: hashlib.sha256((output / f"{name}.csv").read_bytes()).hexdigest() for name in tables}}
+                "result_sha256": {name: sha256((output / f"{name}.csv")) for name in tables}}
     (output / "run_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
     print("Обрана стратегія:", selection["selected_strategy"], flush=True)
     return summary, periods, grid_summary, calibration, selection
@@ -363,7 +354,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--freeze-only", action="store_true")
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent.parent
+    root = PROJECT
     if args.freeze_only:
         _, digest = freeze_protocol(root)
         print("Protocol frozen:", digest)

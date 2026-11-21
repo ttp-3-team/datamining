@@ -1,13 +1,12 @@
 import json
 import tempfile
-from pathlib import Path
 import unittest
 from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-import interaction_study as study
-from test_train_only_study import synthetic_source
+from disputes import interaction_study as study
+from synthetic import synthetic_source
 
 
 class InteractionChecks(unittest.TestCase):

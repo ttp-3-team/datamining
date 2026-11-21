@@ -1,6 +1,4 @@
 """Часове порівняння моделей спорів. Test не завантажується."""
-from pathlib import Path
-import hashlib
 import json
 import warnings
 
@@ -12,12 +10,14 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, average_precision_score, brier_score_loss,
-                             confusion_matrix, log_loss, precision_score, recall_score, roc_auc_score)
+                             log_loss, precision_score, recall_score, roc_auc_score)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler, OrdinalEncoder
 
-from preparation import (SOURCE_COLUMNS, fit_scale_reference, load_table,
+from disputes.preparation import (SOURCE_COLUMNS, fit_scale_reference, load_table,
                          normalize_source, prepare_amounts, calculate_baseline)
+from disputes import protocol as proto
+from disputes.protocol import sha256
 
 BASE_CATEGORIES = ["merchant_id", "psp", "payment_method", "card_brand",
                    "reason_category", "reason_code", "currency", "dispute_weekday"]
@@ -353,6 +353,11 @@ def export_run(root, spec, models, probabilities, metrics, econ, selected,
     predictions["selected_action"] = policy(validation, val_audit, probabilities[selected])
     predictions["selected_profit_usd"] = profit_rows(validation, val_audit, probabilities[selected])
     predictions.to_csv(output / "validation_predictions.csv", index=False)
+    # Перший запуск фіксує контрольні суми; validation_extension звіряє з ними.
+    snapshot = output / "first_run_sha256.json"
+    if not snapshot.exists():
+        hashes = {name: sha256(output / name) for name in ["validation_predictions.csv", "validation_economics.csv"]}
+        snapshot.write_text(json.dumps(hashes, indent=2), encoding="utf-8")
     joblib.dump(models[1], output / "boosting.joblib")
     joblib.dump(models[0], output / "logistic.joblib")
     joblib.dump(models[2], output / "calibrator.joblib")
@@ -365,7 +370,7 @@ def export_run(root, spec, models, probabilities, metrics, econ, selected,
               "test_evaluated": False, "validation_used_for_selection": True,
               "input_sha256": {name: manifest["files"][name]["sha256"] for name in
                                ["train_clean.csv", "train_audit.csv", "validation_clean.csv", "validation_audit.csv"]},
-              "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "code_sha256": proto.code_hashes("model_comparison.py"),
               "versions": {"python": sys.version.split()[0],
                            "sklearn": sklearn.__version__, "pandas": pd.__version__, "numpy": np.__version__,
                            "scipy": scipy.__version__}}
