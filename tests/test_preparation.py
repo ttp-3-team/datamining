@@ -1,19 +1,24 @@
 """Перевірки підготовки на реальному dataset.csv (пропускаються, якщо датасету немає)."""
 
 import io
-from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from disputes.paths import DATASET, PROJECT
 from disputes.preparation import (
-    SOURCE_COLUMNS, calculate_baseline, export_results, load_table, normalize_source, prepare_amounts, prepare_dataset,
+    SOURCE_COLUMNS,
+    calculate_baseline,
+    export_results,
+    load_table,
+    normalize_source,
+    prepare_amounts,
+    prepare_dataset,
 )
-
 
 SOURCE = DATASET
 OLD_EXPORT = PROJECT / "handoff_20261120_005640.zip"

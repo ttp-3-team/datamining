@@ -1,9 +1,13 @@
 """Незалежні перевірки розрахунків і часових меж модельного експерименту."""
 import unittest
+
 import numpy as np
 import pandas as pd
-from disputes.model_comparison import (CANDIDATES, features, policy, profit_rows,
-                              temporal_fold, logits, fit_model, predict)
+
+from disputes.backtest import time_window
+from disputes.economics import policy, profit_rows
+from disputes.model_comparison import CANDIDATES, segment_diagnostics
+from disputes.models import QUALITY, features, fit, logits, predict
 from disputes.preparation import SOURCE_COLUMNS, normalize_source
 
 
@@ -67,14 +71,14 @@ class ModelChecks(unittest.TestCase):
         raw = pd.concat([self.data] * 20, ignore_index=True)[SOURCE_COLUMNS]
         raw.dispute_id = [str(i) for i in range(len(raw))]
         normalized, audit = normalize_source(raw)
-        a, aa, _, _, reference = temporal_fold(normalized, audit, 1, 3)
+        a, aa, _, _, _ = time_window(normalized, audit, 1, 3)
         changed = normalized.copy()
         changed.loc[changed.dispute_week.gt(1), ["amount_usd", "amount", "won"]] = [9000., 40., 0]
-        b, ba, _, _, changed_reference = temporal_fold(changed, audit, 1, 3)
-        pd.testing.assert_frame_equal(reference, changed_reference)
+        b, ba, _, _, _ = time_window(changed, audit, 1, 3)
         pd.testing.assert_frame_equal(a, b)
-        model_a = fit_model(a, aa, CANDIDATES[0])
-        model_b = fit_model(b, ba, CANDIDATES[0])
+        pd.testing.assert_frame_equal(aa, ba)
+        model_a = fit(a, aa, CANDIDATES[0])
+        model_b = fit(b, ba, CANDIDATES[0])
         np.testing.assert_allclose(predict(model_a, a, aa, CANDIDATES[0]),
                                    predict(model_b, a, aa, CANDIDATES[0]), atol=1e-12)
 
@@ -83,21 +87,20 @@ class ModelChecks(unittest.TestCase):
 
     def test_boosting_new_categories_are_not_learned_from_validation(self):
         spec = CANDIDATES[1]
-        model = fit_model(self.data, self.audit, spec)
+        model = fit(self.data, self.audit, spec)
         encoder = model.named_steps["preprocess"].named_transformers_["categories"]
         before = [values.copy() for values in encoder.categories_]
         changed = self.data.copy()
         changed.loc[0, "merchant_id"] = "NEW_MERCHANT"
         p = predict(model, changed, self.audit, spec)
         self.assertTrue(np.isfinite(p).all())
-        for old, current in zip(before, encoder.categories_):
+        for old, current in zip(before, encoder.categories_, strict=True):
             np.testing.assert_array_equal(old, current)
         mask = model.named_steps["classifier"].is_categorical_
         self.assertEqual(mask.tolist(), [True] * 8 + [False])
 
     def test_all_feature_variants_ignore_target(self):
         audit = self.audit.copy()
-        from disputes.model_comparison import QUALITY
         for col in QUALITY:
             audit[col] = False
         changed = self.data.copy()
@@ -107,7 +110,6 @@ class ModelChecks(unittest.TestCase):
                                           features(changed, audit, spec)[0])
 
     def test_group_without_scorable_amount_has_unknown_income(self):
-        from disputes.model_comparison import segment_diagnostics
         segments = segment_diagnostics(self.data, self.audit, np.array([.9, .1, .99, .8]), self.data)
         row = segments.query("field == 'amount_band' and group == 'MISSING'").iloc[0]
         self.assertEqual(row.evaluated_rows, 0)

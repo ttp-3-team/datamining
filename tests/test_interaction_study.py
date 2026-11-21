@@ -2,10 +2,13 @@ import json
 import tempfile
 import unittest
 from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 
 from disputes import interaction_study as study
+from disputes.backtest import time_window
+from disputes.models import features, fit, predict
 from synthetic import synthetic_source
 
 
@@ -15,8 +18,8 @@ class InteractionChecks(unittest.TestCase):
         changed = data.copy()
         changed.won = 1 - changed.won
         for variant in study.VARIANTS:
-            original, cats = study.make_features(data, audit, variant)
-            altered, _ = study.make_features(changed, audit, variant)
+            original, cats = features(data, audit, study.spec(variant, 1.))
+            altered, _ = features(changed, audit, study.spec(variant, 1.))
             pd.testing.assert_frame_equal(original, altered)
             self.assertNotIn("won", original)
             self.assertNotIn("dispute_id", original)
@@ -29,24 +32,25 @@ class InteractionChecks(unittest.TestCase):
         data.loc[0, ["psp", "currency"]] = ["P|X", "Y"]
         data.loc[1, ["psp", "currency"]] = ["P", "X|Y"]
         data.loc[2, "currency"] = pd.NA
-        x, _ = study.make_features(data, audit, "psp_currency")
+        x, _ = features(data, audit, study.spec("psp_currency", 1.))
         self.assertNotEqual(x.interaction_psp_currency.iloc[0], x.interaction_psp_currency.iloc[1])
         self.assertEqual(json.loads(x.interaction_psp_currency.iloc[2])[1], "MISSING")
 
     def test_unseen_pair_does_not_change_train_encoder(self):
         data, audit = synthetic_source()
-        a, aa, b, ab = study.previous.prepare_window(data, audit, 5, 9)
+        a, aa, b, ab, _ = time_window(data, audit, 5, 9)
         mask = np.arange(len(a)) % 2 == 0
         a.loc[mask, ["psp", "currency"]] = ["Q", "EUR"]
-        model = study.fit(a, aa, "psp_currency", .1)
+        spec = study.spec("psp_currency", .1)
+        model = fit(a, aa, spec)
         encoder = model.named_steps["preprocess"].named_transformers_["categories"]
         categories = [v.copy() for v in encoder.categories_]
         b.loc[b.index[0], ["psp", "currency"]] = ["P", "EUR"]
-        p = study.predict(model, b, ab, "psp_currency")
+        p = predict(model, b, ab, spec)
         self.assertTrue(np.isfinite(p).all())
-        x, _ = study.make_features(b, ab, "psp_currency")
+        x, _ = features(b, ab, spec)
         self.assertNotIn(x.interaction_psp_currency.iloc[0], encoder.categories_[-1])
-        for before, after in zip(categories, encoder.categories_):
+        for before, after in zip(categories, encoder.categories_, strict=True):
             np.testing.assert_array_equal(before, after)
         self.assertEqual(model.named_steps["classifier"].C, .1)
 
@@ -56,7 +60,7 @@ class InteractionChecks(unittest.TestCase):
         mask = changed.dispute_week.between(6, 9)
         changed.loc[mask, "won"] = 1 - changed.loc[mask, "won"]
         with (patch.object(study, "VARIANTS", {"baseline": [], "psp_currency": ["psp_currency"]}),
-              patch.object(study.previous, "C_VALUES", [.1, 1.])):
+              patch.object(study, "C_VALUES", [.1, 1.])):
             original = study.run_outer(data, audit, 5, 9)
             altered = study.run_outer(changed, audit, 5, 9)
         pd.testing.assert_frame_equal(original[1], altered[1])

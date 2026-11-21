@@ -1,14 +1,17 @@
 """Відтворювана підготовка спорів. Моделі тут не навчаються."""
 
+import argparse
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-import json
 
 import numpy as np
 import pandas as pd
-from disputes.protocol import sha256
-from disputes.paths import DATASET, OUTPUTS
 
+from disputes.config import TRAIN_LAST_WEEK, VALIDATION_LAST_WEEK
+from disputes.economics import check_aligned, payoff
+from disputes.paths import DATASET, OUTPUTS
+from disputes.protocol import sha256
 
 SOURCE_COLUMNS = [
     "dispute_id", "merchant_id", "psp", "payment_method", "card_brand",
@@ -25,8 +28,8 @@ VERSION = "1.0.0"
 
 @dataclass(frozen=True)
 class Settings:
-    train_last_week: int = 17
-    validation_last_week: int = 21
+    train_last_week: int = TRAIN_LAST_WEEK
+    validation_last_week: int = VALIDATION_LAST_WEEK
     min_reference_amount: float = 10
     min_reference_pairs: int = 30
     reference_margin: float = 0.05
@@ -229,17 +232,13 @@ def quality_summary(clean, audits):
 
 
 def calculate_baseline(data, audit, observed_only=False):
-    """Контрольна оцінка на явно зазначеній підмножині; це не модель."""
-    if not data.dispute_id.equals(audit.dispute_id):
-        raise ValueError("Рядки даних та аудиту не відповідають одне одному.")
-    mask = audit["score_observed_only" if observed_only else "score_eligible"]
-    values = data.loc[mask, "amount_usd"]
-    if not (values.notna() & np.isfinite(values) & values.gt(0)).all():
+    """Score стратегії «боротися завжди» на явно зазначеній підмножині сум."""
+    check_aligned(data, audit)
+    mask = audit["score_observed_only" if observed_only else "score_eligible"].to_numpy(dtype=bool)
+    values = data.amount_usd.to_numpy(dtype=float)[mask]
+    if not (np.isfinite(values) & (values > 0)).all():
         raise ValueError("Прапорець Score не відповідає доступним сумам.")
-    return {
-        "rows": int(mask.sum()), "total_rows": len(data),
-        "score_usd": float((.2 * values * data.loc[mask, "won"] - 6).sum()),
-    }
+    return {"rows": int(mask.sum()), "total_rows": len(data), "score_usd": float(payoff(data)[mask].sum())}
 
 
 def export_results(clean, audits, reference, source_path, output_dir, settings=Settings()):
@@ -301,7 +300,6 @@ def load_table(output_dir, filename):
 
 
 def main():
-    import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=DATASET)
     parser.add_argument("--output", type=Path, default=OUTPUTS)

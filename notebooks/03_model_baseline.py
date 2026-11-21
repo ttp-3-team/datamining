@@ -24,30 +24,23 @@
 # Результати записуються окремо в `model_outputs`; очищені таблиці не змінюються.
 
 # %%
-from pathlib import Path
-import sys
-from disputes.paths import PROJECT as PROJECT_DIR
-
 import json
-import hashlib
-import warnings
-import base64
+import sys
+
+import matplotlib
 import numpy as np
 import pandas as pd
 import sklearn
-import matplotlib
+from IPython.display import display
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from IPython.display import display, HTML
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler, FunctionTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.linear_model import LogisticRegression
-from sklearn.exceptions import ConvergenceWarning
-from sklearn.metrics import (roc_auc_score, average_precision_score, log_loss,
-                             brier_score_loss, accuracy_score, confusion_matrix)
-from disputes.preparation import load_table, calculate_baseline
+
+from disputes.economics import check_aligned, payoff, policy, profit_rows
+from disputes.evaluation import calibration_bins, classification_metrics
+from disputes.models import feature_columns, features, fit, predict
+from disputes.paths import PROJECT as PROJECT_DIR
+from disputes.preparation import calculate_baseline, load_table
 
 OUTPUT = PROJECT_DIR / "model_outputs"
 OUTPUT.mkdir(exist_ok=True)
@@ -70,30 +63,19 @@ print("scikit-learn:", sklearn.__version__)
 
 # %%
 train = load_table(PROJECT_DIR / "outputs", "train_clean.csv")
+train_audit = load_table(PROJECT_DIR / "outputs", "train_audit.csv")
 validation = load_table(PROJECT_DIR / "outputs", "validation_clean.csv")
 validation_audit = load_table(PROJECT_DIR / "outputs", "validation_audit.csv")
 assert train.dispute_week.max() < validation.dispute_week.min()
 assert set(train.dispute_id).isdisjoint(validation.dispute_id)
-assert validation.dispute_id.equals(validation_audit.dispute_id)
 assert set(train.won.unique()) == {0, 1}
 
-CATEGORICAL = ["merchant_id", "psp", "payment_method", "card_brand",
-               "reason_category", "reason_code", "currency", "dispute_weekday"]
-NUMERIC = ["amount_usd"]
-FEATURES = CATEGORICAL + NUMERIC
-assert not {"won", "dispute_id", "amount"}.intersection(FEATURES)
-
-def model_input(data):
-    result = data.loc[:, FEATURES].copy()
-    for col in CATEGORICAL:
-        result[col] = result[col].astype("string").fillna("MISSING").astype(str)
-    result["amount_usd"] = result.amount_usd.astype(float)
-    return result
-
-X_train, X_validation = model_input(train), model_input(validation)
-y_train, y_validation = train.won.astype(int), validation.won.astype(int)
+SPEC = {"name": "logistic", "kind": "logistic", "C": 1.0}
+CATEGORICAL, NUMERIC = feature_columns(SPEC)
+X_train, _ = features(train, train_audit, SPEC)
+assert not {"won", "dispute_id", "amount"}.intersection(X_train)
 display(pd.DataFrame({"rows": [len(train), len(validation)],
-                      "win_rate": [y_train.mean(), y_validation.mean()]},
+                      "win_rate": [train.won.mean(), validation.won.mean()]},
                      index=["train", "validation"]))
 
 # %% [markdown]
@@ -105,28 +87,11 @@ display(pd.DataFrame({"rows": [len(train), len(validation)],
 # Постійна ймовірність, рівна частці виграшів train, — контроль якості прогнозу.
 
 # %%
-numeric_pipeline = Pipeline([
-    ("log", FunctionTransformer(np.log1p, feature_names_out="one-to-one")),
-    ("impute", SimpleImputer(strategy="median", add_indicator=True)),
-    ("scale", StandardScaler()),
-])
-preprocess = ColumnTransformer([
-    ("categories", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL),
-    ("amount", numeric_pipeline, NUMERIC),
-])
-model = Pipeline([
-    ("preprocess", preprocess),
-    ("classifier", LogisticRegression(C=1.0, max_iter=2000, random_state=42)),
-])
-with warnings.catch_warnings():
-    warnings.simplefilter("error", ConvergenceWarning)
-    model.fit(X_train, y_train)
-p = model.predict_proba(X_validation)[:, list(model.classes_).index(1)]
-assert np.isfinite(p).all() and ((p >= 0) & (p <= 1)).all()
-p_constant = np.full(len(validation), y_train.mean())
+model = fit(train, train_audit, SPEC)
+p = predict(model, validation, validation_audit, SPEC)
+p_constant = np.full(len(validation), train.won.mean())
 print("Ітерацій навчання:", model.named_steps["classifier"].n_iter_.tolist())
 print("Ознак після перетворення:", model.named_steps["preprocess"].transform(X_train).shape[1])
-
 
 # %% [markdown]
 # ## 3. Якість ймовірностей
@@ -137,36 +102,24 @@ print("Ознак після перетворення:", model.named_steps["prep
 # Калібрування перевіряємо за групами прогнозів; на validation його не донавчаємо.
 
 # %%
-def probability_metrics(probability):
-    return {"roc_auc": roc_auc_score(y_validation, probability),
-            "average_precision_won": average_precision_score(y_validation, probability),
-            "log_loss": log_loss(y_validation, probability, labels=[0, 1]),
-            "brier": brier_score_loss(y_validation, probability),
-            "accuracy_at_0.5": accuracy_score(y_validation, probability >= .5)}
-
-metrics = pd.DataFrame({"constant_train_rate": probability_metrics(p_constant),
-                        "logistic_regression": probability_metrics(p)}).T
-display(metrics.round(4))
-display(pd.DataFrame(confusion_matrix(y_validation, p >= .5, labels=[0, 1]),
-                     index=["actual_lost", "actual_won"],
-                     columns=["predicted_lost", "predicted_won"]))
-calibration_rows = pd.DataFrame({"p": p, "won": y_validation.to_numpy()})
-calibration_rows["bin"] = pd.cut(p, np.linspace(0, 1, 11), include_lowest=True)
-calibration = calibration_rows.groupby("bin", observed=True).agg(
-    rows=("won", "size"), predicted=("p", "mean"), observed=("won", "mean"))
+metrics = pd.DataFrame({name: classification_metrics(validation.won, probability)
+                        for name, probability in {"constant_train_rate": p_constant,
+                                                  "logistic_regression": p}.items()}).T
+display(metrics[["roc_auc", "average_precision_won", "log_loss", "brier", "accuracy"]].astype(float).round(4))
+counts = metrics.loc["logistic_regression"]
+display(pd.DataFrame([[counts.true_lost, counts.false_won], [counts.false_lost, counts.true_won]],
+                     index=["actual_lost", "actual_won"], columns=["predicted_lost", "predicted_won"]))
+calibration = calibration_bins(validation.won, p)
 display(calibration)
 fig, ax = plt.subplots(figsize=(6, 4))
 ax.plot([0, 1], [0, 1], "--", color="gray")
-ax.plot(calibration.predicted, calibration.observed, "o-")
+ax.plot(calibration.mean_probability, calibration.win_rate, "o-")
 ax.set(xlabel="Mean predicted win probability", ylabel="Observed win rate",
        title="Validation calibration", xlim=(0, 1), ylim=(0, 1))
 fig.tight_layout()
-plot_path = OUTPUT / "validation_calibration.png"
-fig.savefig(plot_path, dpi=150)
+fig.savefig(OUTPUT / "validation_calibration.png", dpi=150)
+display(fig)
 plt.close(fig)
-display(HTML('<img alt="Validation calibration" width="600" src="data:image/png;base64,'
-             + base64.b64encode(plot_path.read_bytes()).decode() + '">'))
-
 
 # %% [markdown]
 # ## 4. Дохід від рішення
@@ -182,36 +135,28 @@ display(HTML('<img alt="Validation calibration" width="600" src="data:image/png;
 # За відсутньої суми дія — `review_amount`; це не автоматична відмова і не нульовий дохід.
 
 # %%
-def economic_table(data, audit, probabilities):
-    if not data.dispute_id.equals(audit.dispute_id):
-        raise ValueError("Дані й аудит не вирівняні")
+def economic_table(data, audit, p, p_constant):
+    """Чотири стратегії на однакових рядках для обох сценаріїв сум."""
+    check_aligned(data, audit)
+    decisions = {"never_fight": np.zeros(len(data), dtype=bool), "always_fight": np.ones(len(data), dtype=bool),
+                 "constant_probability": policy(data, audit, p_constant) == "fight",
+                 "logistic_regression": policy(data, audit, p) == "fight"}
     result = []
-    for scenario, flag in [("eligible", "score_eligible"),
-                           ("observed_only", "score_observed_only")]:
+    for scenario, flag in [("eligible", "score_eligible"), ("observed_only", "score_observed_only")]:
         mask = audit[flag].to_numpy(dtype=bool)
-        amount = data.loc[mask, "amount_usd"].to_numpy(dtype=float)
-        won = data.loc[mask, "won"].to_numpy(dtype=int)
-        assert np.isfinite(amount).all() and (amount > 0).all()
-        profit = .2 * amount * won - 6
-        decisions = {
-            "never_fight": np.zeros(len(amount), dtype=bool),
-            "always_fight": np.ones(len(amount), dtype=bool),
-            "constant_probability": .2 * amount * y_train.mean() > 6,
-            "logistic_regression": .2 * amount * probabilities[mask] > 6,
-        }
+        profit = payoff(data)[mask]
         for strategy, fight in decisions.items():
-            score = float(profit[fight].sum())
-            result.append({"scenario": scenario, "strategy": strategy,
-                           "evaluated_rows": len(amount), "total_rows": len(data),
-                           "coverage": float(mask.mean()), "fight_rows": int(fight.sum()),
-                           "score_usd": score,
+            score = float(profit[fight[mask]].sum())
+            result.append({"scenario": scenario, "strategy": strategy, "evaluated_rows": int(mask.sum()),
+                           "total_rows": len(data), "coverage": float(mask.mean()),
+                           "fight_rows": int(fight[mask].sum()), "score_usd": score,
                            "delta_vs_always_usd": score - float(profit.sum())})
     return pd.DataFrame(result)
 
-economics = economic_table(validation, validation_audit, p)
+economics = economic_table(validation, validation_audit, p, p_constant)
 for scenario, observed in [("eligible", False), ("observed_only", True)]:
     baseline = calculate_baseline(validation, validation_audit, observed_only=observed)
-    row = economics.query("scenario == @scenario and strategy == 'always_fight'").iloc[0]
+    row = economics.loc[economics.scenario.eq(scenario) & economics.strategy.eq("always_fight")].iloc[0]
     assert np.isclose(row.score_usd, baseline["score_usd"])
     assert row.evaluated_rows == baseline["rows"]
 display(economics.round(3))
@@ -228,14 +173,15 @@ example = pd.DataFrame({"dispute_id": ["a", "b", "c", "d"],
 example_audit = pd.DataFrame({"dispute_id": example.dispute_id,
                               "score_eligible": [True, True, True, False],
                               "score_observed_only": [True, False, True, False]})
-check = economic_table(example, example_audit, np.array([.9, .1, .99, .8]))
+example_constant = np.full(4, train.won.mean())
+check = economic_table(example, example_audit, np.array([.9, .1, .99, .8]), example_constant)
 chosen = check.query("scenario == 'eligible' and strategy == 'logistic_regression'").iloc[0]
 assert chosen.score_usd == 14 and chosen.fight_rows == 1 and chosen.evaluated_rows == 3
 assert check.query("scenario == 'eligible' and strategy == 'always_fight'").score_usd.iloc[0] == 26
 assert check.query("strategy == 'never_fight'").score_usd.eq(0).all()
 assert check.query("scenario == 'observed_only'").evaluated_rows.eq(2).all()
 try:
-    economic_table(example, example_audit.iloc[::-1].reset_index(drop=True), np.ones(4))
+    economic_table(example, example_audit.iloc[::-1].reset_index(drop=True), np.ones(4), example_constant)
 except ValueError:
     pass
 else:
@@ -252,25 +198,19 @@ print("Контроль формули, підмножин та відповід
 
 # %%
 eligible = validation_audit.score_eligible.to_numpy(dtype=bool)
-amount = validation.amount_usd.to_numpy(dtype=float)
-fight = eligible & (.2 * p * amount > 6)
-predictions = validation[["dispute_id", "won", "amount_usd"]].copy()
-predictions["p_won"] = p
-predictions["score_eligible"] = eligible
-predictions["score_observed_only"] = validation_audit.score_observed_only.to_numpy()
-predictions["action"] = np.where(~eligible, "review_amount", np.where(fight, "fight", "skip"))
-predictions["realized_profit_usd"] = np.where(
-    eligible, np.where(fight, .2 * amount * y_validation.to_numpy() - 6, 0), np.nan)
+predictions = validation[["dispute_id", "won", "amount_usd"]].assign(
+    p_won=p, score_eligible=eligible, score_observed_only=validation_audit.score_observed_only.to_numpy(),
+    action=policy(validation, validation_audit, p), realized_profit_usd=profit_rows(validation, validation_audit, p))
 assert predictions.loc[~eligible, "realized_profit_usd"].isna().all()
 assert np.isclose(predictions.realized_profit_usd.sum(),
                   economics.query("scenario == 'eligible' and strategy == 'logistic_regression'").score_usd.iloc[0])
 predictions.to_csv(OUTPUT / "validation_predictions.csv", index=False)
 metrics.to_csv(OUTPUT / "validation_probability_metrics.csv", index_label="model")
 economics.to_csv(OUTPUT / "validation_economics.csv", index=False)
-calibration.to_csv(OUTPUT / "validation_calibration.csv")
+calibration.to_csv(OUTPUT / "validation_calibration.csv", index=False)
 source_manifest = json.loads((PROJECT_DIR / "outputs" / "manifest.json").read_text(encoding="utf-8"))
 config = {
-    "model": "LogisticRegression", "C": 1.0, "seed": 42,
+    "model": "LogisticRegression", "spec": SPEC, "seed": 42,
     "categorical": CATEGORICAL, "numeric": NUMERIC,
     "amount_transform": "log1p, train median with missing indicator, StandardScaler",
     "decision": "p * 0.2 * amount_usd > 6; missing amount -> review_amount",
@@ -278,7 +218,7 @@ config = {
     "versions": {"python": sys.version.split()[0], "sklearn": sklearn.__version__,
                  "pandas": pd.__version__, "numpy": np.__version__, "matplotlib": matplotlib.__version__},
     "input_sha256": {name: source_manifest["files"][name]["sha256"] for name in
-                     ["train_clean.csv", "validation_clean.csv", "validation_audit.csv"]},
+                     ["train_clean.csv", "train_audit.csv", "validation_clean.csv", "validation_audit.csv"]},
 }
 (OUTPUT / "run_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
 selected = economics.query("scenario == 'eligible' and strategy == 'logistic_regression'").iloc[0]

@@ -36,17 +36,15 @@
 # Виконати Restart and Run All. Усі нові виходи — interaction_outputs/.
 
 # %%
-from pathlib import Path
-from disputes.paths import PROJECT as PROJECT_DIR
-import json
-import base64
-import numpy as np
-import pandas as pd
 import matplotlib
+
+from disputes.paths import PROJECT as PROJECT_DIR
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from IPython.display import display, HTML
-from disputes.interaction_study import freeze, run, VARIANTS
+from IPython.display import display
+
+from disputes.interaction_study import VARIANTS, freeze, run
 
 OUTPUT, protocol_hash = freeze(PROJECT_DIR)
 print("Протокол зафіксовано до нових результатів:", protocol_hash)
@@ -130,9 +128,8 @@ axes[1].set(title="Difference from nested baseline", xlabel="Score difference, U
 fig.tight_layout()
 figure = OUTPUT / "interaction_comparison.png"
 fig.savefig(figure, dpi=150)
+display(fig)
 plt.close(fig)
-display(HTML('<img alt="Train-only logistic interactions" width="1100" src="data:image/png;base64,'
-             + base64.b64encode(figure.read_bytes()).decode() + '">'))
 
 # %% [markdown]
 # ## Межі висновку та відтворення

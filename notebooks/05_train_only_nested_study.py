@@ -30,17 +30,16 @@
 # Дані, прогнози з ID та виводи ноутбука залишаються локальними.
 
 # %%
-from pathlib import Path
-from disputes.paths import PROJECT as PROJECT_DIR
-import json
-import base64
-import numpy as np
-import pandas as pd
 import matplotlib
+import pandas as pd
+
+from disputes.paths import PROJECT as PROJECT_DIR
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from IPython.display import display, HTML
-from disputes.train_only_study import PROTOCOL, freeze_protocol, run
+from IPython.display import display
+
+from disputes.train_only_study import freeze_protocol, run
 
 # Ця операція передує читанню даних і розрахункам. Наявний протокол
 # перевіряється на збіг; змінений протокол не перезаписується автоматично.
@@ -162,9 +161,8 @@ axes[1].legend(fontsize=7)
 fig.tight_layout()
 figure = OUTPUT / "train_only_comparison.png"
 fig.savefig(figure, dpi=150)
+display(fig)
 plt.close(fig)
-display(HTML('<img alt="Train-only nested temporal comparison" width="1100" src="data:image/png;base64,'
-             + base64.b64encode(figure.read_bytes()).decode() + '">'))
 
 # %% [markdown]
 # ## Межі висновку та наступне використання

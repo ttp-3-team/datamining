@@ -1,17 +1,19 @@
 import unittest
-from unittest.mock import patch
+
 import numpy as np
 
 from disputes import catboost_study as study
+from disputes.backtest import inner_search, time_window
+from disputes.config import INNER_FOLDS
+from disputes.models import features, fit, predict
 from synthetic import synthetic_source
-from disputes.model_comparison import features, predict
 
 
 class CatBoostChecks(unittest.TestCase):
     def test_fit_predict_with_missing_numeric_and_unseen_categories(self):
         data, audit = synthetic_source()
-        a, aa, b, ab = study.previous.prepare_window(data, audit, 5, 9)
-        model = study.fit_cat(a, aa, study.SPECS[0])
+        a, aa, b, ab, _ = time_window(data, audit, 5, 9)
+        model = fit(a, aa, study.SPECS[0])
         b = b.copy()
         b.loc[b.index[0], "merchant_id"] = "UNSEEN_MERCHANT"
         b.loc[b.index[1], "amount_usd"] = np.nan
@@ -28,17 +30,15 @@ class CatBoostChecks(unittest.TestCase):
         data, audit = synthetic_source()
         training = data.loc[data.dispute_week.le(5)]
         cutoffs = []
-        def fake_fit(data, audit, spec):
-            cutoff = int(data.dispute_week.max())
-            cutoffs.append(cutoff)
-            return cutoff
-        def fake_predict(cutoff, data, audit, spec):
-            self.assertLess(cutoff, int(data.dispute_week.min()))
-            self.assertLessEqual(int(data.dispute_week.max()), 5)
-            return np.full(len(data), .7)
-        with (patch.object(study, "fit_cat", fake_fit), patch.object(study, "predict", fake_predict),
-              patch.object(study, "SPECS", study.SPECS[:1])):
-            _, _, oof = study.search(training, audit.loc[training.index], study.previous.INNER_FOLDS[5])
+
+        def predictor(window, spec):
+            cutoffs.append(int(window.train.dispute_week.max()))
+            self.assertLess(window.train.dispute_week.max(), window.eval.dispute_week.min())
+            self.assertLessEqual(int(window.eval.dispute_week.max()), 5)
+            return np.full(len(window.eval), .7)
+
+        _, _, oof, _ = inner_search(training, audit.loc[training.index], INNER_FOLDS[5], study.SPECS[:1], predictor)
+        oof = oof[study.SPECS[0]["name"]]
         self.assertEqual(cutoffs, [1, 3])
         self.assertTrue((oof.base_train_max_week < oof.dispute_week).all())
         self.assertTrue(oof.dispute_id.is_unique)

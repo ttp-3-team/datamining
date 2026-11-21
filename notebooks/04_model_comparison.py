@@ -28,27 +28,37 @@
 # AI використано для допомоги з кодом і перевірками; на захисті це слід задекларувати.
 #
 # Середовище — `uv sync`. Запустити всі комірки в чистій сесії.
-# `model_comparison.py`, `preparation.py` та `outputs/` мають бути поруч.
+# Потрібен `outputs/` з ноутбука 02.
 # Усі нові виходи — в `comparison_outputs/`.
 
 # %%
-from pathlib import Path
-from disputes.paths import PROJECT as PROJECT_DIR
 import json
-import base64
-import hashlib
+
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+from IPython.display import display
+from sklearn.metrics import confusion_matrix
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from IPython.display import display, HTML
-from sklearn.metrics import confusion_matrix, log_loss
+
+from disputes.economics import policy
+from disputes.evaluation import calibration_bins
 from disputes.model_comparison import (
-    CANDIDATES, FOLDS, load_inputs, cross_validate, fit_finalists, evaluate,
-    policy, profit_rows, week_diagnostics, paired_block_intervals,
-    permutation_diagnostics, segment_diagnostics, export_run, features,
+    CANDIDATES,
+    FOLDS,
+    cross_validate,
+    export_run,
+    fit_finalists,
+    load_inputs,
+    paired_block_intervals,
+    permutation_diagnostics,
+    segment_diagnostics,
+    week_diagnostics,
 )
+from disputes.models import features
+from disputes.paths import PROJECT as PROJECT_DIR
 
 OUTPUT = PROJECT_DIR / "comparison_outputs"
 OUTPUT.mkdir(exist_ok=True)
@@ -172,21 +182,14 @@ importance = permutation_diagnostics(boosting, validation, validation_audit, bes
 segments = segment_diagnostics(validation, validation_audit, p_selected, train)
 display(importance.round(4))
 display(segments.round(3))
-calibration_frames = []
-for name, p in probabilities.items():
-    frame = pd.DataFrame({"p": p, "won": validation.won.to_numpy()})
-    frame["bin"] = pd.cut(p, np.linspace(0, 1, 11), include_lowest=True)
-    grouped = frame.groupby("bin", observed=True).agg(rows=("won", "size"),
-                  predicted=("p", "mean"), observed=("won", "mean")).reset_index()
-    grouped["model"] = name
-    calibration_frames.append(grouped)
-calibration = pd.concat(calibration_frames, ignore_index=True)
-display(calibration.query("model == @selected"))
+calibration = pd.concat([calibration_bins(validation.won, p).assign(model=name)
+                         for name, p in probabilities.items()], ignore_index=True)
+display(calibration.loc[calibration.model.eq(selected)])
 
 fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
 for name in ["logistic", "boosting", "boosting_calibrated", "blend_50_50"]:
-    group = calibration.query("model == @name")
-    axes[0].plot(group.predicted, group.observed, "o-", label=name, markersize=4)
+    group = calibration.loc[calibration.model.eq(name)]
+    axes[0].plot(group.mean_probability, group.win_rate, "o-", label=name, markersize=4)
 axes[0].plot([0, 1], [0, 1], "--", color="gray")
 axes[0].set(xlabel="Predicted win probability", ylabel="Observed win rate", title="Validation calibration")
 axes[0].legend(fontsize=8)
@@ -198,9 +201,8 @@ axes[1].legend()
 fig.tight_layout()
 figure = OUTPUT / "validation_comparison.png"
 fig.savefig(figure, dpi=150)
+display(fig)
 plt.close(fig)
-display(HTML('<img alt="Validation model comparison" width="1000" src="data:image/png;base64,'
-             + base64.b64encode(figure.read_bytes()).decode() + '">'))
 
 # %% [markdown]
 # ## 5. Експорт і зафіксований вибір

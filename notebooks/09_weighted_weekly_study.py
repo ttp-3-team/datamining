@@ -31,15 +31,19 @@
 # їхні абсолютні суми доходу не можна ранжувати разом.
 
 # %%
-from pathlib import Path
-from disputes.paths import PROJECT as PROJECT_DIR
-import json, hashlib, base64
-import pandas as pd
+import json
+
 import matplotlib
+
+from disputes.paths import PROJECT as PROJECT_DIR
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from IPython.display import display, HTML
+from IPython.display import display
+
+from disputes.protocol import verified_csv
 from disputes.weighted_weekly_study import freeze, run
+
 RECOMPUTE=False
 OUTPUT,protocol_hash=freeze(PROJECT_DIR)
 if RECOMPUTE:
@@ -47,9 +51,7 @@ if RECOMPUTE:
 manifest=json.loads((OUTPUT/"run_evidence.json").read_text(encoding="utf-8"))
 assert manifest["protocol_sha256"]==protocol_hash
 def verified_table(name):
-    path=OUTPUT/f"{name}.csv"
-    assert hashlib.sha256(path.read_bytes()).hexdigest()==manifest["result_sha256"][name]
-    return pd.read_csv(path)
+    return verified_csv(OUTPUT / f"{name}.csv", manifest["result_sha256"][name])
 primary=verified_table("primary_summary")
 weekly=verified_table("weekly_summary")
 periods=verified_table("weekly_periods")
@@ -123,8 +125,8 @@ axes[1].legend(fontsize=7)
 fig.tight_layout()
 figure=OUTPUT/"weighted_weekly_comparison.png"
 fig.savefig(figure,dpi=150)
+display(fig)
 plt.close(fig)
-display(HTML('<img alt="Weighted and weekly comparison" width="1150" src="data:image/png;base64,'+base64.b64encode(figure.read_bytes()).decode()+'">'))
 
 # %% [markdown]
 # ## Єдина таблиця всіх методів і висновки

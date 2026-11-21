@@ -38,17 +38,16 @@
 # Запуск: Restart and Run All.
 
 # %%
-from pathlib import Path
-from disputes.paths import PROJECT as PROJECT_DIR
-import base64
-import json
-import numpy as np
-import pandas as pd
 import matplotlib
+import pandas as pd
+
+from disputes.paths import PROJECT as PROJECT_DIR
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from IPython.display import display, HTML
-from disputes.catboost_study import freeze, run, SPECS
+from IPython.display import display
+
+from disputes.catboost_study import SPECS, freeze, run
 
 OUTPUT, protocol_sha256 = freeze(PROJECT_DIR)
 print("Протокол зафіксовано до нових результатів:", protocol_sha256)
@@ -125,9 +124,8 @@ axes[1].legend()
 fig.tight_layout()
 path = OUTPUT / "catboost_train_comparison.png"
 fig.savefig(path, dpi=150)
+display(fig)
 plt.close(fig)
-display(HTML('<img alt="CatBoost nested train-only comparison" width="1100" src="data:image/png;base64,'
-             + base64.b64encode(path.read_bytes()).decode() + '">'))
 
 # %% [markdown]
 # ## Як читати висновок

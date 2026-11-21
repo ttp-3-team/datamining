@@ -32,16 +32,16 @@
 # залишаються локально; не публікувати виводи ноутбука чи CSV з окремими спорами.
 
 # %%
-from pathlib import Path
-from disputes.paths import PROJECT as PROJECT_DIR
-import base64
-import json
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
+from disputes.paths import PROJECT as PROJECT_DIR
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from IPython.display import display, HTML
+from IPython.display import display
+
 from disputes.validation_extension import freeze, run
 
 OUTPUT, protocol_hash = freeze(PROJECT_DIR)
@@ -138,7 +138,8 @@ weekly = pd.read_csv(OUTPUT / "validation_weekly.csv")
 fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 view = summary.sort_values("score_usd")
 axes[0].barh(view.model, view.score_usd, color=np.where(view.historical_row, "#7895b2", "#348c68"))
-axes[0].axvline(5324., linestyle="--", color="gray", label="Always fight")
+axes[0].axvline((summary.score_usd - summary.delta_always_usd).iloc[0], linestyle="--", color="gray",
+                label="Always fight")
 axes[0].set(xlabel="Validation Score, USD", title="Historical rows + train-selected new models")
 axes[0].legend(fontsize=8)
 for name in ["logistic", "logistic_train_tuned", "catboost", "catboost_calibrated", "lr_tuned_cat_50_50"]:
@@ -150,9 +151,8 @@ axes[1].legend(fontsize=7)
 fig.tight_layout()
 path = OUTPUT / "validation_extended_comparison.png"
 fig.savefig(path, dpi=150)
+display(fig)
 plt.close(fig)
-display(HTML('<img alt="Extended validation comparison" width="1150" src="data:image/png;base64,'
-             + base64.b64encode(path.read_bytes()).decode() + '">'))
 
 # %% [markdown]
 # ## Висновок має враховувати межі перевірки

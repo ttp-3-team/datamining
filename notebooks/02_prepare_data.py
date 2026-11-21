@@ -21,22 +21,26 @@
 # Повний запуск від початкового CSV можна повторювати. Готові CSV не подавати назад як початковий датасет: це стирало б походження виправлень.
 
 # %%
-from pathlib import Path
 
-from disputes.paths import DATASET, PROJECT as PROJECT_DIR
-SOURCE = DATASET
-
-if not SOURCE.exists():
-    raise FileNotFoundError("Покладіть dataset.csv у корінь репозиторію")
 import pandas as pd
 from IPython.display import display
 
+from disputes.paths import DATASET, OUTPUTS
 from disputes.preparation import (
-    normalize_source, split_by_time, fit_scale_reference, prepare_amounts,
-    quality_summary, export_results, load_table, calculate_baseline,
+    calculate_baseline,
+    export_results,
+    fit_scale_reference,
+    load_table,
+    normalize_source,
+    prepare_amounts,
+    quality_summary,
+    split_by_time,
 )
-OUTPUT = PROJECT_DIR / "outputs"
-raw = pd.read_csv(SOURCE)
+
+if not DATASET.exists():
+    raise FileNotFoundError("Покладіть dataset.csv у корінь репозиторію")
+OUTPUT = OUTPUTS
+raw = pd.read_csv(DATASET)
 
 
 # %% [markdown]
@@ -94,7 +98,7 @@ print("Цілісність рядків, зв'язок з аудитом і д�
 # Основні таблиці містять 13 колонок. Аудит — окремо, з ключем `dispute_id`. Manifest описує типи та контрольні суми. Після зміни правил команда повинна отримати нову версію всього експорту, а не окремий виправлений CSV.
 
 # %%
-manifest = export_results(clean, audits, reference, SOURCE, OUTPUT)
+manifest = export_results(clean, audits, reference, DATASET, OUTPUT)
 print(f"Результати: {OUTPUT.resolve()}")
 print(f"Версія підготовки: {manifest['preparation_version']}")
 

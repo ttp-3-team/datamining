@@ -21,18 +21,16 @@
 # Кожен рядок — спір, за який продавець вже боровся і отримав фінальний результат. `won` — 1 для виграшу, 0 для програшу. Дані не описують усі можливі спори.
 
 # %%
-from pathlib import Path
 
-from disputes.paths import DATASET, PROJECT as PROJECT_DIR
-SOURCE = DATASET
-
-if not SOURCE.exists():
-    raise FileNotFoundError("Покладіть dataset.csv у корінь репозиторію")
 import pandas as pd
 from IPython.display import display
 
-from disputes.preparation import normalize_source, split_by_time, fit_scale_reference
-raw = pd.read_csv(SOURCE)
+from disputes.paths import DATASET
+from disputes.preparation import fit_scale_reference, normalize_source, split_by_time
+
+if not DATASET.exists():
+    raise FileNotFoundError("Покладіть dataset.csv у корінь репозиторію")
+raw = pd.read_csv(DATASET)
 
 # %% [markdown]
 # ## Початковий склад

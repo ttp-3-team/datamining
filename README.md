@@ -35,22 +35,28 @@ Score = Σ (0,2 · amount_usd · won − 6) по спорах, за які ви�
 
 ```
 ├── src/disputes/                 ← код, який викликають ноутбуки й скрипти
-│   ├── paths.py                  де лежать дані, код і результати
-│   ├── protocol.py               фіксація протоколів і контрольні суми (спільне)
+│   ├── config.py                 усі рішення: грошове правило, часові зрізи, сітки, кандидати моделей
+│   ├── economics.py              коли боротися і скільки це приносить (p × 0,2 × A > 6)
+│   ├── models.py                 ознаки та моделі: логістична (+взаємодії, ваги), HGB, CatBoost, калібрування
+│   ├── evaluation.py             метрики, Score стратегій, групові підсумки, правило вибору
+│   ├── backtest.py               часові зрізи, вкладений підбір кандидатів, правило калібрування
+│   ├── protocol.py               фіксація протоколів, контроль доступу до даних, докази запуску
 │   ├── preparation.py            очищення, аудит сум, часовий поділ → outputs/
-│   ├── model_comparison.py       ознаки, моделі, метрики, економічна політика
-│   ├── train_only_study.py       вкладений train-only вибір стратегії
-│   ├── catboost_study.py         CatBoost і ансамблі на тих самих фолдах
-│   ├── interaction_study.py      взаємодії PSP × валюта / причина
-│   ├── validation_extension.py   довідкове порівняння на validation
-│   ├── weighted_weekly_study.py  ваги за сумою та щотижневий backtest
-│   └── final_test_evaluation.py  одноразова фінальна оцінка на test
+│   ├── model_comparison.py       ноутбук 04: перше порівняння на validation
+│   ├── train_only_study.py       ноутбук 05: вкладений train-only вибір стратегії
+│   ├── catboost_study.py         ноутбук 06: CatBoost на тих самих зрізах
+│   ├── validation_extension.py   ноутбук 07: довідкова validation і розбіжності моделей
+│   ├── interaction_study.py      ноутбук 08: взаємодії PSP × валюта / причина
+│   ├── weighted_weekly_study.py  ноутбук 09: ваги за сумою та щотижневий backtest
+│   ├── final_test_evaluation.py  одноразова фінальна оцінка на test
+│   └── verification.py           спільні незалежні перевірки для scripts/verify_*.py
 ├── notebooks/                    01–09: .py (jupytext, джерело) + .ipynb без виводів
 ├── scripts/
 │   ├── reproduce.sh              увесь ланцюжок у правильному порядку
-│   ├── check_notebooks.py        виконати ноутбук → build/notebooks/
+│   ├── check_notebooks.py        виконати ноутбук у чистому ядрі (nbclient) → build/notebooks/
 │   ├── verify_*.py               незалежна перевірка результатів кожного етапу
-│   └── build_method_review.py    зведення всіх методів (HTML + CSV)
+│   ├── build_method_review.py    зведення всіх методів: CSV + HTML (шаблон Jinja2 у templates/)
+│   └── templates/
 ├── tests/                        pytest; синтетичні дані, реальний датасет — опційно
 └── docs/                         журнал експериментів і перевірок
 ```
@@ -62,7 +68,8 @@ Score = Σ (0,2 · amount_usd · won − 6) по спорах, за які ви�
 
 ```bash
 uv sync                          # Python 3.12 і точні версії залежностей з uv.lock
-uv run pytest                    # 48 тестів; тести на реальних даних пропускаються без dataset.csv
+uv run pytest                    # тести на реальних даних пропускаються без dataset.csv
+uv run ruff check                # стиль і типові помилки
 ./scripts/reproduce.sh           # повне відтворення (~5 хв), включно з фінальним test
 ./scripts/reproduce.sh --no-test # те саме без відкриття test
 ```

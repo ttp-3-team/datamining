@@ -1,7 +1,10 @@
 import unittest
+
 import numpy as np
 import pandas as pd
+
 from disputes import weighted_weekly_study as study
+from disputes.backtest import time_window
 from synthetic import synthetic_source
 
 
@@ -42,24 +45,26 @@ class WeightAndTimeChecks(unittest.TestCase):
         changed = data.copy()
         changed.loc[changed.dispute_week.gt(5), "won"] = 1-changed.loc[changed.dispute_week.gt(5), "won"]
         spec = study.lr_specs("amount_p99")[1]
-        a, b = study.Engine(data,audit), study.Engine(changed,audit)
-        pa, pb = a.predict(5,9,spec), b.predict(5,9,spec)
-        np.testing.assert_allclose(pa,pb,atol=1e-12)
-        self.assertEqual(a.fit_log,b.fit_log)
-        self.assertEqual(len(a.models),1)
-        a.predict(5,8,spec)
-        self.assertEqual(len(a.models),1)
-        a.predict(3,5,spec)
-        self.assertEqual(len(a.models),2)
+        a, b = study.ModelCache(), study.ModelCache()
+        pa = a.predict(time_window(data, audit, 5, 9), spec)
+        pb = b.predict(time_window(changed, audit, 5, 9), spec)
+        np.testing.assert_allclose(pa, pb, atol=1e-12)
+        self.assertEqual(a.fit_log, b.fit_log)
+        self.assertEqual(len(a.models), 1)
+        a.predict(time_window(data, audit, 5, 8), spec)
+        self.assertEqual(len(a.models), 1)
+        a.predict(time_window(data, audit, 3, 5), spec)
+        self.assertEqual(len(a.models), 2)
 
     def test_evaluation_amounts_do_not_change_fit_weights_or_coefficients(self):
         data, audit = synthetic_source()
         changed = data.copy()
         changed.loc[changed.dispute_week.gt(5), "amount_usd"] = 9000.
         spec = study.lr_specs("amount_p99")[1]
-        a,b = study.Engine(data,audit),study.Engine(changed,audit)
-        a.predict(5,9,spec); b.predict(5,9,spec)
-        self.assertEqual(a.fit_log,b.fit_log)
+        a, b = study.ModelCache(), study.ModelCache()
+        a.predict(time_window(data, audit, 5, 9), spec)
+        b.predict(time_window(changed, audit, 5, 9), spec)
+        self.assertEqual(a.fit_log, b.fit_log)
         ma, mb = next(iter(a.models.values())),next(iter(b.models.values()))
         np.testing.assert_allclose(ma.named_steps["classifier"].coef_,mb.named_steps["classifier"].coef_)
 

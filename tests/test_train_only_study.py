@@ -1,14 +1,16 @@
 """Перевірки вкладеної схеми та фіксованого правила вибору."""
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
 from disputes import train_only_study as study
+from disputes.backtest import time_window, train_calibrator
+from disputes.models import fit
 from synthetic import synthetic_source
 
 
@@ -50,9 +52,9 @@ class NestedChecks(unittest.TestCase):
 
     def test_C_grid_reaches_actual_estimator(self):
         data, audit = synthetic_source()
-        a, aa, _, _ = study.prepare_window(data, audit, 5, 9)
+        a, aa, _, _, _ = time_window(data, audit, 5, 9)
         for spec in study.LR_SPECS:
-            fitted = study.fit(a, aa, spec)
+            fitted = fit(a, aa, spec)
             self.assertEqual(fitted.named_steps["classifier"].C, spec["C"])
 
     def test_calibration_uses_only_out_of_time_training_labels(self):
@@ -62,16 +64,16 @@ class NestedChecks(unittest.TestCase):
                             "inner_period": ["2-3"] * 600 + ["4-5"] * 600,
                             "base_train_max_week": [1] * 600 + [3] * 600,
                             "dispute_week": [2] * 600 + [4] * 600})
-        calibrator, status = study.train_calibrator(oof, 5)
+        calibrator, status = train_calibrator(oof, 5)
         self.assertIsNotNone(calibrator)
         self.assertTrue(status["adequate_by_protocol"])
         with self.assertRaises(ValueError):
-            study.train_calibrator(oof, 3)
+            train_calibrator(oof, 3)
         bad = oof.copy()
         bad.loc[0, "base_train_max_week"] = 2
         with self.assertRaises(ValueError):
-            study.train_calibrator(bad, 5)
-        small_calibrator, small_status = study.train_calibrator(oof.iloc[:100], 5)
+            train_calibrator(bad, 5)
+        small_calibrator, small_status = train_calibrator(oof.iloc[:100], 5)
         self.assertIsNone(small_calibrator)
         self.assertFalse(small_status["adequate_by_protocol"])
 
