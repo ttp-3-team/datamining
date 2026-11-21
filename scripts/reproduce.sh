@@ -61,4 +61,12 @@ if [[ "${1:-}" != "--no-test" ]]; then
   run python -m disputes.final_test_evaluation --freeze-only
   run python -m disputes.final_test_evaluation
 fi
+
+# 9. Друга оцінка: покращення обираються на тижнях 0–21, потім один замір test
+run python -m disputes.second_evaluation develop
+if [[ "${1:-}" != "--no-test" ]]; then
+  run python -m disputes.second_evaluation freeze
+  run python -m disputes.second_evaluation test
+  notebook 10_second_evaluation
+fi
 echo; echo "Готово."

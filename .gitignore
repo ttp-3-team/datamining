@@ -20,3 +20,5 @@ __pycache__/
 # Перед комітом ноутбуків очистити виводи з даними.
 build/
 .venv/
+second_evaluation_outputs/
+final_test_outputs_v2/

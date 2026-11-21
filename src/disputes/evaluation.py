@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.stats import bootstrap
 from sklearn.metrics import average_precision_score, brier_score_loss, confusion_matrix, log_loss, roc_auc_score
 
-from disputes.config import PRACTICAL_GAP_USD_PER_1000
+from disputes.config import PRACTICAL_GAP_USD_PER_1000, SEED
 from disputes.economics import payoff, policy, profit_rows
 from disputes.preparation import calculate_baseline
 
@@ -62,6 +63,16 @@ def segment_scores(data: pd.DataFrame, audit: pd.DataFrame, p, segment) -> pd.Da
         delta_vs_always_usd=("delta", lambda s: s.sum(min_count=1))).reset_index()
     result["fight_rate"] = result.fight_rows / result.eligible_rows.replace(0, np.nan)
     return result
+
+
+def bootstrap_interval(values, groups=None, repeats: int = 2000) -> list[float]:
+    """95% percentile-bootstrap інтервал суми; з groups — ресемплінг цілих груп (напр. мерчантів)."""
+    values = np.asarray(values, dtype=float)
+    if groups is not None:
+        values = pd.Series(values).groupby(np.asarray(groups)).sum().to_numpy()
+    interval = bootstrap((values,), np.sum, n_resamples=repeats, method="percentile",
+                         rng=np.random.default_rng(SEED)).confidence_interval
+    return [float(interval.low), float(interval.high)]
 
 
 def merchant_status(data: pd.DataFrame, train: pd.DataFrame) -> pd.Series:

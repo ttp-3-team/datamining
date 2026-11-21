@@ -36,6 +36,7 @@ QUALITY = ["currency_dollar_assumed_usd", "amount_invalid_removed", "amount_usd_
 INTERACTION_PAIRS = {"psp_currency": ("psp", "currency"), "psp_reason": ("psp", "reason_category")}
 INTERACTION_VARIANTS = {"baseline": [], "psp_currency": ["psp_currency"], "psp_reason": ["psp_reason"],
                         "both_interactions": ["psp_currency", "psp_reason"]}
+MERCHANT_HISTORY = ["merchant_hist_rate", "merchant_hist_log_n"]
 
 
 def feature_columns(spec: dict) -> tuple[list[str], list[str]]:
@@ -46,7 +47,29 @@ def feature_columns(spec: dict) -> tuple[list[str], list[str]]:
     nums += ["amount"] if spec.get("add_amount") else []
     nums += ["dispute_week"] if spec.get("add_week") else []
     nums += QUALITY if spec.get("add_quality") else []
+    nums += MERCHANT_HISTORY if spec.get("merchant_history") else []
     return cats, nums
+
+
+def merchant_history(history: pd.DataFrame, rows: pd.DataFrame, prior: float = 20.) -> pd.DataFrame:
+    """Додати до `rows` минулу частку виграшів мерчанта лише з тижнів history, раніших за тиждень рядка.
+
+    Частка згладжена до загальної частки history з вагою `prior` спорів; без історії — загальна частка.
+    Для навчальних рядків (history = rows) це розширне вікно, для оцінюваних — уся history.
+    """
+    known = history.dropna(subset=["merchant_id"])
+    stats = (known.groupby(["merchant_id", "dispute_week"]).won.agg(wins="sum", n="count").reset_index()
+             .sort_values("dispute_week"))
+    stats[["wins", "n"]] = stats.groupby("merchant_id")[["wins", "n"]].cumsum()
+    stats["dispute_week"] = stats.dispute_week.astype("int64")
+    left = rows[["merchant_id", "dispute_week"]].assign(
+        merchant_id=rows.merchant_id.fillna("<missing>"), dispute_week=rows.dispute_week.astype("int64"),
+        position=np.arange(len(rows))).sort_values("dispute_week")
+    matched = pd.merge_asof(left, stats, on="dispute_week", by="merchant_id", allow_exact_matches=False)
+    matched = matched.sort_values("position")
+    wins, n = matched.wins.fillna(0.).to_numpy(), matched.n.fillna(0.).to_numpy()
+    overall = float(history.won.mean())
+    return rows.assign(merchant_hist_rate=(wins + prior * overall) / (n + prior), merchant_hist_log_n=np.log1p(n))
 
 
 def features(data: pd.DataFrame, audit: pd.DataFrame, spec: dict) -> tuple[pd.DataFrame, list[str]]:
@@ -72,8 +95,12 @@ def new_model(spec: dict):
         amount = Pipeline([("log", FunctionTransformer(np.log1p, feature_names_out="one-to-one")),
                            ("impute", SimpleImputer(strategy="median", add_indicator=True)),
                            ("scale", StandardScaler())])
-        preprocess = ColumnTransformer([("categories", OneHotEncoder(handle_unknown="ignore"), cats),
-                                        ("amount", amount, nums)])
+        others = [c for c in nums if c != "amount_usd"]
+        transformers = [("categories", OneHotEncoder(handle_unknown="ignore"), cats), ("amount", amount, ["amount_usd"])]
+        if others:
+            transformers.append(("numeric", Pipeline([("impute", SimpleImputer(strategy="median")),
+                                                      ("scale", StandardScaler())]), others))
+        preprocess = ColumnTransformer(transformers)
         classifier = LogisticRegression(C=spec.get("C", 1.), max_iter=2000, random_state=SEED)
         return Pipeline([("preprocess", preprocess), ("classifier", classifier)])
     if spec["kind"] == "boosting":
