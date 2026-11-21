@@ -38,7 +38,7 @@ assert len(pd.read_csv(folder / "HGB_feature_diagnostics.csv")) == 6
 overview = pd.read_csv(folder / "all_methods_overview.csv")
 assert len(overview) == 19
 html = (folder / "method_review.html").read_text(encoding="utf-8")
-assert '<html lang="uk">' in html and "Щотижневий train-backtest" in html and "Висновок" in html
+assert all(f'id="{section}"' in html for section in ["conclusion", "weekly-backtest"])
 
 write_result(folder, {"regimes": counts, "overview_methods": len(overview), "fixed_C_diagnostics": 5,
                       "HGB_feature_diagnostics": 6, "all_relative_scores_verified": True,
