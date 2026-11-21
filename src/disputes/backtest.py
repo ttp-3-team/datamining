@@ -1,7 +1,7 @@
-"""Часові зрізи, вкладений підбір кандидатів і правило калібрування.
+"""Temporal windows, nested candidate selection and the calibration rule.
 
-Кожен зріз: модель бачить тижні ≤ last_train, оцінюється на тижнях last_train+1…last_eval.
-Опора для очищення сум щоразу навчається лише на ранній частині зрізу.
+Each window trains on weeks ≤ last_train and evaluates on weeks last_train+1…last_eval.
+The amount-cleaning reference is refit on the early part of each window only, to avoid leakage.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def time_window(data: pd.DataFrame, source_audit: pd.DataFrame, last_train: int,
     a = data.loc[data.dispute_week.le(last_train)].copy()
     b = data.loc[data.dispute_week.gt(last_train) & data.dispute_week.le(last_eval)].copy()
     if a.empty or b.empty or a.dispute_week.max() >= b.dispute_week.min():
-        raise ValueError("Порожній або неправильно впорядкований часовий зріз")
+        raise ValueError("Empty or misordered temporal window")
     reference = fit_scale_reference(a)
     return Window(*prepare_amounts(a, source_audit.loc[a.index], reference),
                   *prepare_amounts(b, source_audit.loc[b.index], reference), last_train)
@@ -51,9 +51,9 @@ def spec_columns(spec: dict) -> dict:
 
 def inner_search(training: pd.DataFrame, source_audit: pd.DataFrame, folds, specs,
                  predictor: Callable[[Window, dict], np.ndarray] = fit_predict):
-    """Обрати кандидата за сумарним Score на внутрішніх зрізах; нічия — log loss, менший C, назва.
+    """Select the candidate by total Score on inner windows; ties broken by log loss, smaller C, name.
 
-    Повертає (обрана специфікація, рядки за зрізами, out-of-time прогнози кожного кандидата, рейтинг).
+    Returns (selected spec, per-window rows, out-of-time predictions per candidate, ranking).
     """
     records, oof = [], {spec["name"]: [] for spec in specs}
     for cutoff, end in folds:
@@ -77,13 +77,13 @@ def inner_search(training: pd.DataFrame, source_audit: pd.DataFrame, folds, spec
 
 
 def train_calibrator(oof: pd.DataFrame, outer_train_last: int):
-    """Platt-калібратор на out-of-time прогнозах train або None, якщо вибірка замала за правилом."""
+    """Platt calibrator on out-of-time train predictions, or None if the sample is too small by the rule."""
     if not oof.dispute_id.is_unique:
-        raise ValueError("Повторні калібрувальні ID")
+        raise ValueError("Duplicate calibration IDs")
     if not (oof.base_train_max_week < oof.dispute_week).all():
-        raise ValueError("Прогноз для калібратора не є out-of-time")
+        raise ValueError("Calibration predictions are not out-of-time")
     if oof.dispute_week.max() > outer_train_last:
-        raise ValueError("Калібратор отримав мітки зовнішнього періоду")
+        raise ValueError("Calibrator received outer-period labels")
     lost, won = int(oof.won.eq(0).sum()), int(oof.won.eq(1).sum())
     periods = int(oof.inner_period.nunique())
     rule = CALIBRATION_RULE
@@ -101,6 +101,6 @@ def train_calibrator(oof: pd.DataFrame, outer_train_last: int):
 
 
 def inadequate_calibrations(calibration: pd.DataFrame, column: str = "model") -> set[str]:
-    """Назви «<family>_calibrated», які не пройшли правило калібрування хоча б в одному періоді."""
+    """Names "<family>_calibrated" that failed the calibration rule in at least one period."""
     passed = calibration.groupby(column).adequate_by_protocol.all()
     return {f"{family}_calibrated" for family, ok in passed.items() if not ok}

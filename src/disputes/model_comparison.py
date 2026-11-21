@@ -1,7 +1,7 @@
-"""Перше порівняння моделей на validation (ноутбук 04). Test не завантажується.
+"""First model comparison on validation (notebook 04). Test is not loaded.
 
-Кандидат HGB обирається часовою перевіркою на train; фінальний варіант — за Score на
-validation (тому validation далі вважається використаною).
+The HGB candidate is chosen by temporal validation on train; the final variant by Score on
+validation (so validation counts as used afterwards).
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def load_inputs(root: Path):
     check_aligned(validation, val_audit)
     assert train.dispute_week.max() < validation.dispute_week.min()
     assert set(train.dispute_id).isdisjoint(validation.dispute_id)
-    # Для часових фолдів train відновлюється з початкових значень аудиту. Test не читається.
+    # Train is restored from the original audit values for temporal folds. Test is not read.
     raw_train = audit[["raw__" + c for c in SOURCE_COLUMNS]].rename(columns=lambda c: c.removeprefix("raw__"))
     normalized, source_audit = normalize_source(raw_train)
     assert normalized.dispute_id.tolist() == train.dispute_id.tolist()
@@ -43,7 +43,7 @@ def load_inputs(root: Path):
 
 
 def cross_validate(normalized: pd.DataFrame, source_audit: pd.DataFrame):
-    """Часова перевірка всіх кандидатів на трьох зрізах train; лідер HGB — за сумарним Score."""
+    """Temporal validation of all candidates on three train windows; HGB leader by total Score."""
     rows, predictions, fold_frames = [], {}, []
     for last_train, last_eval in FOLDS:
         window = time_window(normalized, source_audit, last_train, last_eval)
@@ -73,11 +73,11 @@ def cross_validate(normalized: pd.DataFrame, source_audit: pd.DataFrame):
 
 
 def fit_finalists(train, audit, validation, val_audit, spec, oof):
-    """Логістична, HGB, калібрований HGB і ансамбль 50/50 на validation; вибір — за Score."""
+    """Logistic, HGB, calibrated HGB and a 50/50 ensemble on validation; selection by Score."""
     logistic_spec = CANDIDATES[0]
     logistic, boosting = fit(train, audit, logistic_spec), fit(train, audit, spec)
     lp, cp = predict(logistic, validation, val_audit, logistic_spec), predict(boosting, validation, val_audit, spec)
-    # Калібратор бачить лише прогнози на пізніших train-фолдах, не validation.
+    # The calibrator sees only predictions on later train folds, never validation.
     calibrator = fit_platt(oof[spec["name"]].p, oof[spec["name"]].won)
     probabilities = {"constant_train_rate": np.full(len(validation), train.won.mean()),
                      "logistic": lp, "boosting": cp, "boosting_calibrated": calibrate(calibrator, cp),
@@ -102,7 +102,7 @@ def week_diagnostics(data, audit, probabilities) -> pd.DataFrame:
 
 
 def paired_block_intervals(data, audit, probabilities, selected, repeats=2000) -> pd.DataFrame:
-    """Описові 95% bootstrap-інтервали різниці Score за блоками (тиждень / мерчант); не незалежний тест."""
+    """Descriptive 95% block bootstrap intervals (week / merchant) of the Score difference; not an independent test."""
     mask = audit.score_eligible.to_numpy(dtype=bool)
     selected_profit = profit_rows(data, audit, probabilities[selected])[mask]
     references = {"always_fight": payoff(data)[mask],
@@ -121,7 +121,7 @@ def paired_block_intervals(data, audit, probabilities, selected, repeats=2000) -
 
 
 def permutation_diagnostics(model, data, audit, spec, repeats=5) -> pd.DataFrame:
-    """Зростання log loss після перемішування кожної ознаки (sklearn permutation importance)."""
+    """Log loss increase after permuting each feature (sklearn permutation importance)."""
     x, _ = features(data, audit, spec)
     result = permutation_importance(model, x, data.won.astype(int), scoring="neg_log_loss",
                                     n_repeats=repeats, random_state=SEED)
@@ -155,7 +155,7 @@ def export_run(root, spec, models, probabilities, metrics, econ, selected,
         selected_profit_usd=profit_rows(validation, val_audit, probabilities[selected]))
     tables["validation_predictions"] = predictions
     hashes = proto.write_tables(output, tables)
-    # Перший запуск фіксує контрольні суми; validation_extension звіряє з ними.
+    # The first run records checksums; validation_extension verifies against them.
     snapshot = output / "first_run_sha256.json"
     if not snapshot.exists():
         proto.write_json(snapshot, {f"{name}.csv": hashes[name] for name in ["validation_predictions", "validation_economics"]})
@@ -176,7 +176,7 @@ def export_run(root, spec, models, probabilities, metrics, econ, selected,
               "code_sha256": proto.code_hashes("model_comparison.py", "models.py", "evaluation.py", "economics.py"),
               "versions": proto.runtime_versions()}
     proto.write_json(output / "selection.json", config)
-    # Незалежний рядковий розрахунок вибраної стратегії та відтворення збережених моделей.
+    # Independent per-row recomputation of the selected strategy and reload of saved models.
     expected = econ.query("scenario == 'eligible' and model == @selected").score_usd.iloc[0]
     assert np.isclose(predictions.selected_profit_usd.sum(), expected)
     restored = {name: joblib.load(output / f"{name}.joblib") for name in ["logistic", "boosting", "calibrator"]}

@@ -1,1 +1,1 @@
-"""Аналіз спорів карткових платежів: підготовка даних, моделі та економічне правило."""
+"""Card payment disputes: data preparation, models and the economic decision rule."""

@@ -1,4 +1,4 @@
-"""Перевірки підготовки на реальному dataset.csv (пропускаються, якщо датасету немає)."""
+"""Preparation checks on the real dataset.csv (skipped if the dataset is absent)."""
 
 import io
 import tempfile
@@ -24,7 +24,7 @@ SOURCE = DATASET
 OLD_EXPORT = PROJECT / "handoff_20261120_005640.zip"
 
 
-@unittest.skipUnless(SOURCE.exists(), "dataset.csv не входить до репозиторію")
+@unittest.skipUnless(SOURCE.exists(), "dataset.csv is not in the repository")
 class PreparationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -40,7 +40,7 @@ class PreparationTests(unittest.TestCase):
         self.assertLess(self.clean['train'].dispute_week.max(), self.clean['validation'].dispute_week.min())
         self.assertLess(self.clean['validation'].dispute_week.max(), self.clean['test'].dispute_week.min())
 
-    @unittest.skipUnless(OLD_EXPORT.exists(), "Історичний архів не входить до пакета")
+    @unittest.skipUnless(OLD_EXPORT.exists(), "historical archive is not in the repository")
     def test_historical_regression_only_two_intended_amount_changes(self):
         with zipfile.ZipFile(OLD_EXPORT) as archive:
             for name in ["train", "validation"]:
@@ -61,7 +61,7 @@ class PreparationTests(unittest.TestCase):
         self.assertFalse(audit.loc[review, 'score_eligible'].any())
 
     def test_reprocessing_guard_preserves_provenance(self):
-        with self.assertRaisesRegex(ValueError, 'вже оброблені'):
+        with self.assertRaisesRegex(ValueError, 'already processed'):
             prepare_amounts(self.clean['train'], self.audits['train'], self.reference)
 
     def test_deterministic_and_does_not_mutate_source(self):
@@ -113,7 +113,7 @@ class PreparationTests(unittest.TestCase):
                     pd.testing.assert_frame_equal(actual, source[name].reset_index(drop=True))
             with (Path(temp) / 'train_clean.csv').open('a', encoding='utf-8') as stream:
                 stream.write('\n')
-            with self.assertRaisesRegex(ValueError, 'змінився'):
+            with self.assertRaisesRegex(ValueError, 'changed after export'):
                 load_table(temp, 'train_clean.csv')
 
     def test_invalid_dates_and_nonfinite_amounts(self):
@@ -137,7 +137,7 @@ class PreparationTests(unittest.TestCase):
         bad.loc[bad.index[1], 'dispute_id'] = bad.iloc[0].dispute_id
         with self.assertRaisesRegex(ValueError, 'dispute_id'):
             normalize_source(bad)
-        with self.assertRaisesRegex(ValueError, '13 колонок'):
+        with self.assertRaisesRegex(ValueError, '13 columns'):
             normalize_source(self.raw.drop(columns='won'))
 
     def test_amount_rules_on_independent_examples(self):

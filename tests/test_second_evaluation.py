@@ -1,4 +1,4 @@
-"""Нові ознаки другої оцінки не бачать майбутнього."""
+"""New second-evaluation features do not see the future."""
 import unittest
 
 import numpy as np
@@ -17,7 +17,7 @@ class MerchantHistoryChecks(unittest.TestCase):
 
     def test_training_rows_use_only_earlier_weeks(self):
         result = merchant_history(self.history, self.history, prior=1e-12)
-        # Перший спір мерчанта A не має історії → загальна частка; другий бачить лише тиждень 0.
+        # Merchant A's first dispute has no history (global rate); the second sees week 0 only.
         self.assertEqual(result.merchant_hist_log_n.tolist()[:3], [0., np.log1p(1), np.log1p(2)])
         self.assertAlmostEqual(result.merchant_hist_rate.iloc[1], 1.)
         self.assertAlmostEqual(result.merchant_hist_rate.iloc[2], .5)
@@ -27,7 +27,7 @@ class MerchantHistoryChecks(unittest.TestCase):
         changed.loc[changed.dispute_week.ge(1), "won"] = 1 - changed.loc[changed.dispute_week.ge(1), "won"]
         before, after = merchant_history(self.history, self.history), merchant_history(changed, changed)
         np.testing.assert_allclose(before.merchant_hist_log_n, after.merchant_hist_log_n)
-        # Рядки тижнів 0–1 бачать лише тиждень 0, тож зміна міток від тижня 1 їх не зачіпає (крім загальної частки).
+        # Rows in weeks 0–1 see week 0 only, so relabelling from week 1 must not affect them (except the global rate).
         self.assertEqual(before.merchant_hist_log_n.iloc[1], after.merchant_hist_log_n.iloc[1])
 
     def test_evaluation_rows_see_all_history_and_missing_merchant_gets_prior(self):

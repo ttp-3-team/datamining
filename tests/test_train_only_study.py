@@ -1,4 +1,4 @@
-"""Перевірки вкладеної схеми та фіксованого правила вибору."""
+"""Checks of the nested scheme and the fixed selection rule."""
 import json
 import tempfile
 import unittest
@@ -101,14 +101,13 @@ class NestedChecks(unittest.TestCase):
         changed = data.copy()
         mask = changed.dispute_week.between(6, 9)
         changed.loc[mask, "won"] = 1 - changed.loc[mask, "won"]
-        # Маленький фіксований набір прискорює структурну перевірку вкладеності.
+        # A small fixed grid keeps the structural nesting check fast.
         with (patch.object(study, "LR_SPECS", study.LR_SPECS[:2]),
               patch.object(study, "GB_SPECS", study.GB_SPECS[:1]),
               patch.dict(study.PROTOCOL["calibration"], {"minimum_rows": 40, "minimum_each_class": 10})):
             result = study.run_outer(data, audit, 5, 9, progress=lambda *a, **k: None)
             altered = study.run_outer(changed, audit, 5, 9, progress=lambda *a, **k: None)
-        # Зменшений поріг стосується лише синтетичного тесту: він перевіряє
-        # також реально навчені калібратори, а не лише fallback.
+        # Lower threshold for the synthetic test only, so fitted calibrators are exercised, not just the fallback.
         self.assertTrue(result[2].adequate_by_protocol.all())
         self.assertEqual(result[3], altered[3])
         pd.testing.assert_frame_equal(result[2], altered[2])

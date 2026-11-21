@@ -1,4 +1,4 @@
-"""Синтетичні train-дані для тестів: 18 тижнів по 16 спорів, без реального датасету."""
+"""Synthetic train data for tests: 18 weeks of 16 disputes, no real dataset."""
 
 import pandas as pd
 

@@ -1,4 +1,4 @@
-"""Перевірити ноутбук 06: повторення, рядковий Score, out-of-time калібрування, незмінність ноутбука 05."""
+"""Verify notebook 06: rerun match, row-level Score, out-of-time calibration, notebook 05 unchanged."""
 import pandas as pd
 
 from disputes import protocol as proto

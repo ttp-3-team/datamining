@@ -1,6 +1,6 @@
-"""Довідкове порівняння на validation (ноутбук 07): параметри лише з train, діагностика розбіжностей.
+"""Reference comparison on validation (notebook 07): parameters from train only, disagreement diagnostics.
 
-Validation уже використовували раніше, тому ці числа — не незалежний фінальний тест.
+Validation was used earlier, so these numbers are not an independent final test.
 """
 
 from __future__ import annotations
@@ -45,23 +45,23 @@ SCENARIOS = ["score_eligible", "score_observed_only"]
 
 
 def freeze(root):
-    """Зафіксувати протокол до читання даних."""
-    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Протокол доповнення validation")
+    """Freeze the protocol before reading data."""
+    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Validation extension protocol")
 
 
 def access_guard(root):
-    """Train і validation дозволені; test і весь початковий датасет — ні."""
+    """Train and validation are allowed; test and the full original dataset are not."""
     return proto.data_access(
         {Path(root) / "outputs": {"train_clean.csv", "train_audit.csv", "validation_clean.csv", "validation_audit.csv"}},
         forbidden_names={"dataset.csv"}, forbidden_prefixes=("test_", "unknown_time_"))
 
 
 def fit_train_parameters(root):
-    """Повністю завершити вибір параметрів і навчання до відкриття validation."""
+    """Finish parameter selection and fitting completely before validation is opened."""
     normalized, source_audit, _ = train_study.load_train_only(root)
     prior = proto.read_json(root / train_study.OUTPUT / "run_evidence.json")
     if proto.sha256(root / "outputs" / "train_audit.csv") != prior["train_audit_sha256"]:
-        raise ValueError("Train відрізняється від попереднього підбору C")
+        raise ValueError("Train differs from the earlier C selection")
     verified = lambda name, **kw: proto.verified_csv(root / train_study.OUTPUT / f"{name}.csv",
                                                      prior["result_sha256"][name], **kw)
     ranking = verified("C_grid_summary").sort_values(["score_usd", "log_loss", "C"], ascending=[False, True, True])
@@ -77,7 +77,7 @@ def fit_train_parameters(root):
     train = load_table(root / "outputs", "train_clean.csv")
     audit = load_table(root / "outputs", "train_audit.csv")
     if train.dispute_id.tolist() != normalized.dispute_id.tolist():
-        raise ValueError("Train ID відрізняються")
+        raise ValueError("Train IDs differ")
     models = {"lr": fit(train, audit, lr_spec), "catboost": fit(train, audit, cat_spec)}
     calibrators = {"lr": lr_calibrator, "catboost": cat_calibrator}
     locked = {"logistic_spec": lr_spec, "catboost_spec": cat_spec,
@@ -87,7 +87,7 @@ def fit_train_parameters(root):
 
 
 def pair_details(data, audit, p_a, p_b, name_a, name_b) -> pd.DataFrame:
-    """Рядкове порівняння двох моделей: дії, класи при 0,5, дохід і близькість до порогу."""
+    """Per-row comparison of two models: actions, classes at 0.5, revenue and distance to the threshold."""
     a, b = policy(data, audit, p_a), policy(data, audit, p_b)
     amount = data.amount_usd.to_numpy(dtype=float)
     eligible = audit.score_eligible.to_numpy(dtype=bool)
@@ -169,22 +169,22 @@ def run(root):
     output, protocol_hash = freeze(root)
     with access_guard(root) as opened:
         train, models, calibrators, locked, candidates, oof = fit_train_parameters(root)
-        # Параметри й калібратори записані ДО першого читання validation.
+        # Parameters and calibrators are recorded BEFORE validation is first read.
         lock = output / "train_parameter_lock.json"
         if lock.exists() and proto.read_json(lock) != proto.canonical(locked):
-            raise ValueError("Параметри з train відрізняються від зафіксованого запуску")
+            raise ValueError("Train parameters differ from the recorded run")
         proto.write_json(lock, locked)
         assert not any(name.startswith("validation") for name in opened)
         validation = load_table(root / "outputs", "validation_clean.csv")
         audit = load_table(root / "outputs", "validation_audit.csv")
         assert train.dispute_week.max() < validation.dispute_week.min()
         assert set(train.dispute_id).isdisjoint(validation.dispute_id)
-        # Прогнози ноутбука 04 зберігаються як є; їхні контрольні суми зафіксовані першим запуском.
+        # Notebook 04 predictions are kept as is; their checksums were recorded by the first run.
         snapshot = proto.read_json(root / "comparison_outputs" / "first_run_sha256.json")
         old = proto.verified_csv(root / "comparison_outputs" / "validation_predictions.csv",
                                  snapshot["validation_predictions.csv"], dtype={"dispute_id": "string"})
         if old.dispute_id.tolist() != validation.dispute_id.tolist():
-            raise ValueError("Історичні validation ID не відповідають поточним")
+            raise ValueError("Historical validation IDs do not match current ones")
         np.testing.assert_allclose(old.amount_usd, validation.amount_usd, equal_nan=True)
         np.testing.assert_array_equal(old.won, validation.won)
         historical = [c.removeprefix("p_") for c in old.columns if c.startswith("p_")]

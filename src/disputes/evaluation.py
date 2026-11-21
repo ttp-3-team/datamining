@@ -1,4 +1,4 @@
-"""Метрики, грошові підсумки та правило вибору стратегії."""
+"""Metrics, monetary totals and the strategy selection rule."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from disputes.preparation import calculate_baseline
 
 
 def classification_metrics(y, p) -> dict:
-    """Метрики ймовірностей і класу при діагностичному порозі 0,5."""
+    """Probability metrics and class metrics at a diagnostic 0.5 threshold."""
     y, p = np.asarray(y, dtype=int), np.asarray(p, dtype=float)
     (tn, fp), (fn, tp) = confusion_matrix(y, p >= .5, labels=[0, 1])
     ratio = lambda a, b: float(a / b) if b else 0.
@@ -33,7 +33,7 @@ def probability_metrics(y, p) -> dict:
 
 
 def evaluate(data: pd.DataFrame, audit: pd.DataFrame, p) -> tuple[dict, list[dict]]:
-    """Класифікаційні метрики та Score для двох сценаріїв сум (усі придатні / лише незмінені)."""
+    """Classification metrics and Score for two amount scenarios (all eligible / unmodified only)."""
     classification = classification_metrics(data.won, p)
     profits, actions = profit_rows(data, audit, p), policy(data, audit, p)
     economics = []
@@ -48,7 +48,7 @@ def evaluate(data: pd.DataFrame, audit: pd.DataFrame, p) -> tuple[dict, list[dic
 
 
 def segment_scores(data: pd.DataFrame, audit: pd.DataFrame, p, segment) -> pd.DataFrame:
-    """Score моделі й «боротися завжди» за групами; NaN, якщо в групі немає придатних сум."""
+    """Model and always-fight Score by group; NaN if a group has no eligible amounts."""
     eligible = audit.score_eligible.to_numpy(dtype=bool)
     frame = pd.DataFrame({
         "segment": pd.Series(np.asarray(segment), dtype="string").fillna("MISSING").to_numpy(),
@@ -66,7 +66,7 @@ def segment_scores(data: pd.DataFrame, audit: pd.DataFrame, p, segment) -> pd.Da
 
 
 def bootstrap_interval(values, groups=None, repeats: int = 2000) -> list[float]:
-    """95% percentile-bootstrap інтервал суми; з groups — ресемплінг цілих груп (напр. мерчантів)."""
+    """95% percentile bootstrap interval of a sum; with groups, whole groups (e.g. merchants) are resampled."""
     values = np.asarray(values, dtype=float)
     if groups is not None:
         values = pd.Series(values).groupby(np.asarray(groups)).sum().to_numpy()
@@ -76,7 +76,7 @@ def bootstrap_interval(values, groups=None, repeats: int = 2000) -> list[float]:
 
 
 def merchant_status(data: pd.DataFrame, train: pd.DataFrame) -> pd.Series:
-    """Чи бачила модель цього мерчанта в train: seen / unseen / missing."""
+    """Whether the merchant occurred in train: seen / unseen / missing."""
     seen = data.merchant_id.isin(train.merchant_id.dropna())
     return pd.Series(np.where(data.merchant_id.isna(), "missing", np.where(seen, "seen", "unseen")), index=data.index)
 
@@ -89,9 +89,9 @@ def calibration_bins(y, p, bins: int = 10) -> pd.DataFrame:
     return result.assign(bin=result.bin.astype(str))
 
 
-# --------------------------------------------------------------------------- рядкові прогнози стратегій
+# --------------------------------------------------------------------------- per-dispute strategy predictions
 def prediction_rows(data: pd.DataFrame, audit: pd.DataFrame, p, constant_p: float) -> pd.DataFrame:
-    """Прогноз, дохід стратегії, сталої ймовірності та «боротися завжди» для кожного спору."""
+    """Per-dispute prediction and revenue of the strategy, the constant probability and always-fight."""
     eligible = audit.score_eligible.to_numpy(dtype=bool)
     result = data[["dispute_id", "dispute_week", "won", "amount_usd"]].copy()
     result["p"] = p
@@ -121,7 +121,7 @@ def _with_observed(rows: pd.DataFrame) -> dict:
 
 def summarize_strategies(predictions: pd.DataFrame, by: str = "strategy", complexity: dict | None = None,
                          not_selectable=()) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Підсумок кожної стратегії та кожного зовнішнього періоду, зі стабільністю між періодами."""
+    """Summary per strategy and outer period, with stability across periods."""
     rows, periods = [], []
     for name, frame in predictions.groupby(by, sort=False):
         row = {"strategy": name, **_with_observed(frame),
@@ -141,19 +141,19 @@ def summarize_strategies(predictions: pd.DataFrame, by: str = "strategy", comple
 
 def assert_same_rows(predictions: pd.DataFrame, by: str = "strategy",
                      columns=("dispute_id", "outer_period", "won", "amount_usd", "eligible", "observed_only")) -> None:
-    """Усі стратегії оцінені на тих самих спорах, сумах і масках."""
+    """Check that all strategies were evaluated on the same disputes, amounts and masks."""
     views = [frame[list(columns)].reset_index(drop=True) for _, frame in predictions.groupby(by)]
     for view in views[1:]:
         pd.testing.assert_frame_equal(view, views[0], check_dtype=False)
 
 
 def select_from_summary(summary: pd.DataFrame) -> dict:
-    """Наперед задане правило: серед стратегій у межах практичного допуску від максимуму — простіша."""
+    """Pre-specified rule: among strategies within the practical tolerance of the best, pick the simplest."""
     candidates = summary.loc[summary.selectable].copy()
     if candidates.empty:
-        raise ValueError("Немає придатної стратегії")
+        raise ValueError("No eligible strategy")
     if candidates.evaluated_rows.nunique() != 1:
-        raise ValueError("Стратегії оцінені на різних кількостях рядків")
+        raise ValueError("Strategies were evaluated on different row counts")
     n = int(candidates.evaluated_rows.iloc[0])
     margin = PRACTICAL_GAP_USD_PER_1000 / 1000 * n
     maximum = float(candidates.score_usd.max())

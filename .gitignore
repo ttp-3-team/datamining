@@ -17,7 +17,7 @@ __pycache__/
 .ipynb_checkpoints/
 *.csv
 *.zip
-# Перед комітом ноутбуків очистити виводи з даними.
+# Executed notebooks (outputs may contain data rows).
 build/
 .venv/
 second_evaluation_outputs/

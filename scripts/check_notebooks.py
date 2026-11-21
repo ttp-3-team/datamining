@@ -1,9 +1,9 @@
-"""Виконати ноутбуки в чистому ядрі (nbclient) і зберегти виконані копії в build/notebooks/.
+"""Execute notebooks in a fresh kernel (nbclient) and save executed copies to build/notebooks/.
 
-Ноутбуки в notebooks/ лишаються без виводів: у виводах можуть бути рядки даних, а датасет не публікується.
+Notebooks in notebooks/ are kept without outputs: outputs may contain data rows and the dataset is confidential.
 
     uv run python scripts/check_notebooks.py 05_train_only_nested_study [06_catboost_train_only ...]
-    uv run python scripts/check_notebooks.py            # усі
+    uv run python scripts/check_notebooks.py            # all
 """
 import sys
 from pathlib import Path

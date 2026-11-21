@@ -1,4 +1,4 @@
-"""Перевірити ноутбук 07: повторення, рядковий Score, підсумки розбіжностей і збережені моделі."""
+"""Verify notebook 07: rerun match, row-level Score, disagreement summaries and saved models."""
 import joblib
 import numpy as np
 import pandas as pd
@@ -42,7 +42,7 @@ with access_guard(PROJECT) as opened:
             assert group.action_disagreement.sum() == expected.action_disagreements
             assert group.loc[~group.action_disagreement, "delta_b_minus_a_usd"].eq(0).all()
 
-    # Збережені моделі й калібратори відтворюють збережені ймовірності.
+    # Saved models and calibrators reproduce the saved probabilities.
     data = load_table(PROJECT / "outputs", "validation_clean.csv")
     audit = load_table(PROJECT / "outputs", "validation_audit.csv")
     lock = proto.read_json(output / "train_parameter_lock.json")

@@ -1,8 +1,8 @@
-"""Ознаки й моделі. Модель задає `spec` — звичайний dict, який записується в протоколи.
+"""Features and models. A model is defined by `spec`, a plain dict written into protocols.
 
-    {"name": "lr_C_0.1", "kind": "logistic", "C": 0.1}                    логістична регресія
-    {"kind": "logistic", "C": 1., "variant": "psp_currency",               ... з взаємодіями
-     "weight": "amount_p99"}                                              ... і вагами за сумою
+    {"name": "lr_C_0.1", "kind": "logistic", "C": 0.1}                    logistic regression
+    {"kind": "logistic", "C": 1., "variant": "psp_currency",               ... with interactions
+     "weight": "amount_p99"}                                              ... and amount weights
     {"name": "hgb_depth4", "kind": "boosting", "depth": 4, "add_week": True}
     {"name": "cat_d4_l2_3.0", "kind": "catboost", "depth": 4, "l2": 3.}
 """
@@ -30,7 +30,7 @@ from disputes.economics import check_aligned, check_probabilities
 
 BASE_CATEGORIES = ["merchant_id", "psp", "payment_method", "card_brand",
                    "reason_category", "reason_code", "currency", "dispute_weekday"]
-# Прапорці аудиту сум, які лише один діагностичний HGB-кандидат отримує як ознаки.
+# Amount-audit flags; used as features only by one diagnostic HGB candidate.
 QUALITY = ["currency_dollar_assumed_usd", "amount_invalid_removed", "amount_usd_invalid_removed",
            "amount_restored", "amount_usd_restored", "amount_usd_scale_corrected"]
 INTERACTION_PAIRS = {"psp_currency": ("psp", "currency"), "psp_reason": ("psp", "reason_category")}
@@ -40,7 +40,7 @@ MERCHANT_HISTORY = ["merchant_hist_rate", "merchant_hist_log_n"]
 
 
 def feature_columns(spec: dict) -> tuple[list[str], list[str]]:
-    """(категоріальні, числові) колонки для специфікації."""
+    """(categorical, numeric) columns for a spec."""
     cats = [c for c in BASE_CATEGORIES if not (spec.get("drop_merchant") and c == "merchant_id")]
     cats += ["interaction_" + pair for pair in INTERACTION_VARIANTS[spec.get("variant", "baseline")]]
     nums = ["amount_usd"]
@@ -52,10 +52,10 @@ def feature_columns(spec: dict) -> tuple[list[str], list[str]]:
 
 
 def merchant_history(history: pd.DataFrame, rows: pd.DataFrame, prior: float = 20.) -> pd.DataFrame:
-    """Додати до `rows` минулу частку виграшів мерчанта лише з тижнів history, раніших за тиждень рядка.
+    """Add the merchant's past win rate to `rows`, using only history weeks earlier than the row's week.
 
-    Частка згладжена до загальної частки history з вагою `prior` спорів; без історії — загальна частка.
-    Для навчальних рядків (history = rows) це розширне вікно, для оцінюваних — уся history.
+    The rate is shrunk towards the overall history rate with weight `prior` disputes; no history gives the
+    overall rate. For training rows (history = rows) this is an expanding window; for scored rows, all history.
     """
     known = history.dropna(subset=["merchant_id"])
     stats = (known.groupby(["merchant_id", "dispute_week"]).won.agg(wins="sum", n="count").reset_index()
@@ -73,19 +73,19 @@ def merchant_history(history: pd.DataFrame, rows: pd.DataFrame, prior: float = 2
 
 
 def features(data: pd.DataFrame, audit: pd.DataFrame, spec: dict) -> tuple[pd.DataFrame, list[str]]:
-    """Лише ознаки, доступні до результату. Пропуск категорії — окреме значення MISSING."""
+    """Only features available before the outcome. A missing category becomes the value MISSING."""
     check_aligned(data, audit)
     cats, nums = feature_columns(spec)
     base = [c for c in cats if not c.startswith("interaction_")]
     x = data[base].astype("string").fillna("MISSING").astype(str)
     for pair in INTERACTION_VARIANTS[spec.get("variant", "baseline")]:
         left, right = INTERACTION_PAIRS[pair]
-        # JSON-пара зберігає межі значень навіть якщо в них є розділювачі.
+        # A JSON pair keeps value boundaries even if values contain separators.
         x["interaction_" + pair] = [json.dumps([a, b], ensure_ascii=False) for a, b in zip(x[left], x[right], strict=True)]
     for col in nums:
         x[col] = audit[col].to_numpy(dtype=np.int8) if col in QUALITY else data[col].astype(float).to_numpy()
     if {"won", "dispute_id"} & set(x) or any(c.startswith("raw__") for c in x):
-        raise AssertionError("Витік цілі або службових полів")
+        raise AssertionError("Target or service-field leakage")
     return x, cats
 
 
@@ -116,11 +116,11 @@ def new_model(spec: dict):
         return CatBoostClassifier(iterations=500, learning_rate=.05, depth=spec["depth"], l2_leaf_reg=spec["l2"],
                                   loss_function="Logloss", boosting_type="Ordered", has_time=True,
                                   thread_count=THREADS, random_seed=SEED, allow_writing_files=False, verbose=False)
-    raise ValueError(f"Невідомий тип моделі: {spec['kind']}")
+    raise ValueError(f"Unknown model kind: {spec['kind']}")
 
 
 def fit(data: pd.DataFrame, audit: pd.DataFrame, spec: dict, sample_weight=None):
-    """Навчити модель на рядках у часовому порядку; ConvergenceWarning — помилка."""
+    """Fit a model on rows in temporal order; ConvergenceWarning is raised as an error."""
     x, cats = features(data, audit, spec)
     order = np.argsort(data.dispute_week.to_numpy(), kind="stable")
     x, y = x.iloc[order], data.won.iloc[order].astype(int)
@@ -149,10 +149,10 @@ def logits(p) -> np.ndarray:
 
 
 def fit_platt(p, won, C: float = 1.) -> LogisticRegression:
-    """Sigmoid-калібрування (Platt) на out-of-time прогнозах."""
+    """Sigmoid (Platt) calibration on out-of-time predictions."""
     return LogisticRegression(C=C, max_iter=2000, random_state=SEED).fit(logits(p), np.asarray(won).astype(int))
 
 
 def calibrate(calibrator, p) -> np.ndarray:
-    """Застосувати калібратор; None означає «залишити сирі ймовірності»."""
+    """Apply a calibrator; None keeps raw probabilities."""
     return p if calibrator is None else calibrator.predict_proba(logits(p))[:, 1]

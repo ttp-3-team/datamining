@@ -1,4 +1,4 @@
-"""Перевірити ноутбук 09: рядковий Score, часові межі, ваги й повторне навчання двох контрольних тижнів."""
+"""Verify notebook 09: row-level Score, time boundaries, weights and retraining of two control weeks."""
 import json
 
 import numpy as np
@@ -28,7 +28,7 @@ for regime in ["primary", "weekly"]:
     calibration = pd.read_csv(output / f"{regime}_calibration.csv")
     assert (calibration.calibration_max_week <= calibration.cutoff).all()
 
-# Той самий cutoff і внутрішня схема дають ті самі p для тижня 10 в обох режимах.
+# Same cutoff and inner scheme must give the same p for week 10 in both regimes.
 primary, weekly = predictions["primary"], predictions["weekly"]
 for method in primary.strategy.unique():
     a = primary.loc[primary.strategy.eq(method) & primary.outer_period.eq("10-13") & primary.dispute_week.eq(10)]
@@ -44,7 +44,7 @@ assert (weighted["max"] > 0).all() and (weighted.weight_effective_n <= weighted.
 
 with proto.train_only_access(PROJECT) as opened:
     data, audit, _ = study.base.load_train_only(PROJECT)
-    # Концентрація приросту в тижні 13 за PSP × валюта: лише агрегати, без нових правил.
+    # Week 13 gain by PSP × currency: aggregates only, no new rules.
     week13 = time_window(data, audit, 12, 13).eval[["dispute_id", "psp", "currency"]]
     reference = weekly.loc[weekly.strategy.eq("logistic") & weekly.dispute_week.eq(13), ["dispute_id", "profit", "p"]]
     groups = []
@@ -59,7 +59,7 @@ with proto.train_only_access(PROJECT) as opened:
     (pd.concat(groups, ignore_index=True).sort_values("delta_vs_logistic_usd", ascending=False)
      .to_csv(output / "week13_group_diagnostic.csv", index=False))
 
-    # Два крайні тижні перевчаються з чистим кешем і мають відтворити всі стратегії.
+    # The first and last weeks are retrained with an empty cache and must reproduce all strategies.
     choices, calibration = (pd.read_csv(output / f"weekly_{name}.csv") for name in ["choices", "calibration"])
     anchors = []
     for week in [10, 17]:
@@ -67,7 +67,7 @@ with proto.train_only_access(PROJECT) as opened:
         raw = {row.family: cache.predict(window, json.loads(row.spec))
                for row in choices.loc[choices.cutoff.eq(week - 1)].itertuples()}
         probabilities = dict(raw)
-        # Калібрування з записаних нахилу й зсуву: sigmoid(slope · logit(p) + intercept).
+        # Calibration from the stored slope and intercept: sigmoid(slope · logit(p) + intercept).
         for row in calibration.loc[calibration.cutoff.eq(week - 1)].itertuples():
             p = raw[row.family]
             probabilities[f"{row.family}_calibrated"] = (

@@ -1,4 +1,4 @@
-"""Перевірити ноутбук 08: повторення, рядковий Score і межі внутрішніх зрізів."""
+"""Verify notebook 08: rerun match, row-level Score and inner split boundaries."""
 import pandas as pd
 
 from disputes import protocol as proto

@@ -1,7 +1,7 @@
-"""Взаємодії PSP × валюта / причина в логістичній регресії, лише train (ноутбук 08).
+"""PSP × currency / reason interactions in logistic regression, train only (notebook 08).
 
-Кожен варіант ознак отримує власний C на внутрішніх зрізах; фіксований C=0,1 —
-лише діагностика (його вже обирали на цих самих періодах).
+Each feature variant gets its own C on inner windows; fixed C=0.1 is a diagnostic only
+(it was already selected on these same periods).
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ class OuterResult(NamedTuple):
 
 
 def freeze(root):
-    """Зафіксувати протокол до читання даних."""
-    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Протокол взаємодій")
+    """Freeze the protocol before reading data."""
+    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Interaction protocol")
 
 
 def spec(variant: str, c: float) -> dict:
@@ -58,7 +58,7 @@ def run_outer(data, audit, cutoff, end) -> OuterResult:
     training = data.loc[data.dispute_week.le(cutoff)]
     searches = {variant: inner_search(training, audit.loc[training.index], INNER_FOLDS[cutoff],
                                       [spec(variant, c) for c in C_VALUES]) for variant in VARIANTS}
-    # Усі параметри визначено до створення зовнішньої оцінюваної частини.
+    # All parameters are fixed before the outer evaluation part is built.
     window = time_window(data, audit, cutoff, end)
     period = f"{cutoff + 1}-{end}"
     chosen = {variant: result[0] for variant, result in searches.items()} | {FIXED: spec("baseline", .1)}
@@ -110,7 +110,7 @@ def run(root):
             pd.concat([getattr(r, field) for r in outcomes], ignore_index=True) for field in OuterResult._fields)
         assert_same_rows(predictions, by="variant")
         summary, periods = summarize(predictions)
-        # Базовий варіант має відтворювати логістичну регресію ноутбука 05.
+        # The baseline variant must reproduce the notebook 05 logistic regression.
         evidence = proto.read_json(root / previous.OUTPUT / "run_evidence.json")
         old_path = root / previous.OUTPUT / "outer_predictions.csv"
         old = proto.verified_csv(old_path, evidence["result_sha256"]["outer_predictions"], dtype={"dispute_id": "string"})

@@ -1,9 +1,9 @@
-"""Одноразова фінальна оцінка на часовому test стратегії, обраної лише на train.
+"""One-off first evaluation on the temporal test set of the strategy selected on train only.
 
-    uv run python -m disputes.final_test_evaluation --freeze-only   # зафіксувати вибір, test не відкривається
-    uv run python -m disputes.final_test_evaluation                 # одна оцінка; повтор заборонено
+    uv run python -m disputes.final_test_evaluation --freeze-only   # freeze the selection; test is not opened
+    uv run python -m disputes.final_test_evaluation                 # single evaluation; reruns are refused
 
-Зберігаються лише агреговані метрики — жодних рядкових прогнозів чи ID.
+Only aggregate metrics are stored, no per-dispute predictions or IDs.
 """
 
 from __future__ import annotations
@@ -32,20 +32,20 @@ OUTPUT = "final_test_outputs"
 
 
 def freeze_protocol(root: Path) -> dict:
-    """Зафіксувати train-only вибір до будь-якого доступу до test."""
+    """Freeze the train-only selection before any access to test."""
     root = Path(root).resolve()
     selection_path = root / study.OUTPUT / "selection.json"
     evidence_path = root / study.OUTPUT / "run_evidence.json"
     train_audit_path = root / "outputs" / "train_audit.csv"
     for path in (selection_path, evidence_path, train_audit_path):
         if not path.is_file():
-            raise FileNotFoundError(f"Потрібен артефакт попереднього train-only етапу: {path}")
+            raise FileNotFoundError(f"Missing artifact of the earlier train-only stage: {path}")
     selection = proto.read_json(selection_path)
     if proto.read_json(evidence_path).get("test_opened") or selection.get("test_opened"):
-        raise ValueError("Train-only звіт указує, що test вже відкривали")
+        raise ValueError("Train-only report states that test was already opened")
     strategy = selection.get("selected_strategy")
     if strategy not in STRATEGY_FAMILIES:
-        raise ValueError(f"Непідтримувана або відсутня train-only стратегія: {strategy!r}")
+        raise ValueError(f"Unsupported or missing train-only strategy: {strategy!r}")
     protocol = {
         "version": 1, "selected_strategy": strategy,
         "selection_source": f"{study.OUTPUT}/selection.json", "selection_sha256": proto.sha256(selection_path),
@@ -55,7 +55,7 @@ def freeze_protocol(root: Path) -> dict:
         "lockfile_sha256": proto.sha256(root / "uv.lock"),
         "inner_folds": OUTER_FOLDS, "decision_rule": DECISION_RULE,
         "test_opened": False,
-        # Історичний факт: один невдалий технічний запуск прочитав test CSV і впав до прогнозів.
+        # Recorded fact: one failed technical run read the test CSV and crashed before predicting.
         "test_accessed_in_failed_attempt_without_metrics": True,
         "test_reused_for_selection": False,
     }
@@ -64,12 +64,12 @@ def freeze_protocol(root: Path) -> dict:
     lock_path = output / "final_protocol.json"
     if lock_path.exists():
         if proto.read_json(lock_path) != proto.canonical(protocol):
-            raise ValueError("Зафіксований фінальний протокол відрізняється; test повторно не оцінювати")
+            raise ValueError("Frozen final protocol differs; do not re-evaluate test")
     else:
         with lock_path.open("x", encoding="utf-8") as stream:
             json.dump(protocol, stream, ensure_ascii=False, indent=2)
     if (output / "test_report.json").exists():
-        raise FileExistsError("Фінальний звіт test уже існує; повторне оцінювання заборонено")
+        raise FileExistsError("Final test report already exists; re-evaluation is not allowed")
     return protocol
 
 
@@ -77,12 +77,12 @@ def raw_from_audit(audit: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     raw = audit[["raw__" + c for c in SOURCE_COLUMNS]].rename(columns=lambda c: c.removeprefix("raw__"))
     data, source_audit = normalize_source(raw)
     if data.dispute_id.tolist() != audit.dispute_id.tolist():
-        raise ValueError("ID відновлених сирих даних не збігаються з аудитом")
+        raise ValueError("Restored raw data IDs do not match the audit")
     return data, source_audit
 
 
 def fit_strategy(strategy: str, train_raw, source_audit, train, train_audit) -> dict:
-    """Підібрати параметри на часових зрізах train і навчити фінальні моделі на всьому train."""
+    """Tune parameters on temporal train windows and fit final models on all of train."""
     fitted = {}
     for family in STRATEGY_FAMILIES[strategy]:
         spec, _, oof, _ = inner_search(train_raw, source_audit, OUTER_FOLDS, FAMILIES[family])
@@ -90,7 +90,7 @@ def fit_strategy(strategy: str, train_raw, source_audit, train, train_audit) -> 
         if strategy == f"{family}_calibrated":
             calibrator, status = train_calibrator(oof[spec["name"]], TRAIN_LAST_WEEK)
             if calibrator is None:
-                raise ValueError(f"Калібрування не пройшло train-only критерій: {status}")
+                raise ValueError(f"Calibration failed the train-only criterion: {status}")
         fitted[family] = (spec, fit(train, train_audit, spec), calibrator)
     return fitted
 
@@ -102,7 +102,7 @@ def strategy_probabilities(strategy: str, fitted: dict, data, audit) -> np.ndarr
 
 
 def records(frame: pd.DataFrame) -> list[dict]:
-    """Рядки таблиці для JSON: NaN → null."""
+    """Table rows for JSON: NaN → null."""
     return frame.astype(object).where(frame.notna(), None).to_dict(orient="records")
 
 
@@ -113,7 +113,7 @@ def economic_segments(data, audit, p, segment) -> list[dict]:
 
 
 def evaluate_once(root: Path) -> dict:
-    """Одна оцінка на test після перевірки, що вибір, дані, код і залежності не змінилися."""
+    """Single test evaluation after checking that selection, data, code and dependencies are unchanged."""
     root = Path(root).resolve()
     protocol = freeze_protocol(root)
     unchanged = {"train_audit": proto.sha256(root / "outputs" / "train_audit.csv") == protocol["train_audit_sha256"],
@@ -122,7 +122,7 @@ def evaluate_once(root: Path) -> dict:
                  "code": proto.code_hashes_match(protocol["code_sha256"]),
                  "lockfile": proto.sha256(root / "uv.lock") == protocol["lockfile_sha256"]}
     if not all(unchanged.values()):
-        raise ValueError(f"Після фіксації фінального протоколу змінилося: {[k for k, ok in unchanged.items() if not ok]}")
+        raise ValueError(f"Changed after the final protocol was frozen: {[k for k, ok in unchanged.items() if not ok]}")
 
     train_raw, train_source_audit, _ = study.load_train_only(root)
     reference = fit_scale_reference(train_raw)
@@ -130,16 +130,16 @@ def evaluate_once(root: Path) -> dict:
     strategy = protocol["selected_strategy"]
     fitted = fit_strategy(strategy, train_raw, train_source_audit, train, train_audit)
 
-    # Test відкривається лише після того, як стратегія та її фінальне навчання готові.
+    # Test is opened only after the strategy and its final fit are complete.
     test_clean = load_table(root / "outputs", "test_clean.csv")
     test, test_audit = prepare_amounts(*raw_from_audit(load_table(root / "outputs", "test_audit.csv")), reference)
     if test.dispute_id.tolist() != test_clean.dispute_id.tolist():
-        raise ValueError("Test-аудит і очищена test-таблиця не вирівняні за ID")
+        raise ValueError("Test audit and clean test table are not aligned by ID")
     for column in ("amount", "amount_usd"):
         if not np.allclose(test[column], test_clean[column], equal_nan=True):
-            raise ValueError(f"Повторна обробка test не збігається з експортом: {column}")
+            raise ValueError(f"Reprocessed test does not match the export: {column}")
     if train.dispute_week.max() >= test.dispute_week.min() or set(train.dispute_id) & set(test.dispute_id):
-        raise ValueError("Test не є пізнішим за train або має спільні з ним спори")
+        raise ValueError("Test is not later than train or shares disputes with it")
 
     p = strategy_probabilities(strategy, fitted, test, test_audit)
     classification, economics = evaluate(test, test_audit, p)
@@ -173,6 +173,6 @@ def evaluate_once(root: Path) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--freeze-only", action="store_true", help="зафіксувати train-only вибір, не відкриваючи test")
+    parser.add_argument("--freeze-only", action="store_true", help="freeze the train-only selection without opening test")
     result = freeze_protocol(PROJECT) if parser.parse_args().freeze_only else evaluate_once(PROJECT)
     print(json.dumps(result, ensure_ascii=False, indent=2))

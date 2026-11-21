@@ -1,4 +1,4 @@
-"""Перевірити зведення методів: джерела, контрольні суми, повноту й усі відносні оцінки."""
+"""Verify the method review: sources, checksums, completeness and all relative scores."""
 import numpy as np
 import pandas as pd
 

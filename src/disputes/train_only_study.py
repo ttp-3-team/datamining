@@ -1,8 +1,8 @@
-"""Вкладене часове порівняння стратегій лише на train (ноутбук 05).
+"""Nested temporal comparison of strategies on train only (notebook 05).
 
-Для кожного зовнішнього періоду параметри логістичної регресії й HGB та калібратори
-обираються на внутрішніх зрізах його train-частини; потім стратегії оцінюються на
-зовнішньому періоді. Фінальну стратегію обирає наперед задане правило практичного допуску.
+For each outer period, logistic regression and HGB parameters and calibrators are chosen on
+inner windows of its training part; strategies are then evaluated on the outer period.
+The final strategy is chosen by a pre-specified practical-tolerance rule.
 """
 
 from __future__ import annotations
@@ -69,25 +69,25 @@ class OuterResult(NamedTuple):
 
 
 def freeze_protocol(root):
-    """Зафіксувати протокол до читання даних."""
-    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Протокол train-only")
+    """Freeze the protocol before reading data."""
+    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Train-only protocol")
 
 
 def load_train_only(root):
-    """Відновити train із початкових значень аудиту — єдина таблиця, яку дозволено читати."""
+    """Restore train from the original audit values (the only table allowed to be read)."""
     filename = "train_audit.csv"
     audit = load_table(Path(root) / "outputs", filename)
     raw = audit[["raw__" + c for c in SOURCE_COLUMNS]].rename(columns=lambda c: c.removeprefix("raw__"))
     data, source_audit = normalize_source(raw)
     if data.dispute_id.tolist() != audit.dispute_id.tolist():
-        raise ValueError("Відновлені train-ID відрізняються від аудиту")
+        raise ValueError("Restored train IDs differ from the audit")
     if not data.dispute_week.between(0, 17).all():
-        raise ValueError("У train є тижні поза 0–17")
+        raise ValueError("Train contains weeks outside 0–17")
     return data, source_audit, [filename]
 
 
 def labelled_rows(window, probabilities: dict, period: str, column: str = "strategy") -> pd.DataFrame:
-    """Рядкові прогнози кількох стратегій на одному зовнішньому періоді."""
+    """Per-row predictions of several strategies on one outer period."""
     constant = float(window.train.won.mean())
     frames = [prediction_rows(window.eval, window.eval_audit, p, constant).assign(**{column: name, "outer_period": period})
               for name, p in probabilities.items()]
@@ -95,14 +95,14 @@ def labelled_rows(window, probabilities: dict, period: str, column: str = "strat
 
 
 def run_outer(data, source_audit, cutoff, end, progress=print) -> OuterResult:
-    """Спочатку вибір і калібрування тільки в training; потім зовнішнє оцінювання."""
+    """Selection and calibration on the training part first, then outer evaluation."""
     training = data.loc[data.dispute_week.le(cutoff)]
     audit = source_audit.loc[training.index]
     lr_spec, lr_records, lr_oof, _ = inner_search(training, audit, INNER_FOLDS[cutoff], LR_SPECS)
     gb_spec, gb_records, gb_oof, _ = inner_search(training, audit, INNER_FOLDS[cutoff], GB_SPECS)
     lr_cal, lr_status = train_calibrator(lr_oof[lr_spec["name"]], cutoff)
     gb_cal, gb_status = train_calibrator(gb_oof[gb_spec["name"]], cutoff)
-    # Зовнішні мітки до цього моменту не використовувалися.
+    # Outer labels have not been used up to this point.
     window = time_window(data, source_audit, cutoff, end)
     period = f"{cutoff + 1}-{end}"
     models = {spec["name"]: fit(window.train, window.train_audit, spec) for spec in [*LR_SPECS, gb_spec]}
@@ -113,7 +113,7 @@ def run_outer(data, source_audit, cutoff, end, progress=print) -> OuterResult:
                      "logistic": lr_p, "logistic_calibrated": calibrate(lr_cal, lr_p),
                      "boosting": gb_p, "boosting_calibrated": calibrate(gb_cal, gb_p),
                      "blend_50_50": .5 * lr_p + .5 * gb_p}
-    # Фіксована C-сітка на тих самих зрізах — діагностика, не заміна вкладеного вибору.
+    # Fixed C grid on the same windows: a diagnostic, not a replacement for nested selection.
     grid = labelled_rows(window, {spec["C"]: raw[spec["name"]] for spec in LR_SPECS}, period, column="C")
     status = pd.DataFrame([{"model": "logistic", **lr_status}, {"model": "boosting", **gb_status}]).assign(outer_period=period)
     choice = {"outer_period": period, "outer_train_last": cutoff, "outer_eval_last": end,
@@ -122,7 +122,7 @@ def run_outer(data, source_audit, cutoff, end, progress=print) -> OuterResult:
     inner = pd.concat([lr_records.assign(family="logistic"), gb_records.assign(family="boosting")]).assign(outer_period=period)
     oof = pd.concat([lr_oof[lr_spec["name"]].assign(family="logistic"),
                      gb_oof[gb_spec["name"]].assign(family="boosting")], ignore_index=True).assign(outer_period=period)
-    progress(f"Завершено зовнішній період {period}: C={lr_spec['C']}, {gb_spec['name']}", flush=True)
+    progress(f"Finished outer period {period}: C={lr_spec['C']}, {gb_spec['name']}", flush=True)
     return OuterResult(labelled_rows(window, probabilities, period), grid, status, choice, inner, oof)
 
 
@@ -170,7 +170,7 @@ def run(root):
             "code_sha256": proto.code_hashes("train_only_study.py", "backtest.py", "models.py", "evaluation.py",
                                              "economics.py", "preparation.py", "config.py"),
             "versions": proto.runtime_versions(), "result_sha256": hashes})
-    print("Обрана стратегія:", selection["selected_strategy"], flush=True)
+    print("Selected strategy:", selection["selected_strategy"], flush=True)
     return summary, periods, grid_summary, calibration, selection
 
 

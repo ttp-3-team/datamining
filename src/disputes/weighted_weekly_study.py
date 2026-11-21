@@ -1,7 +1,7 @@
-"""Логістична регресія з вагами за сумою та щотижневий вкладений backtest, лише train (ноутбук 09).
+"""Amount-weighted logistic regression and a weekly nested backtest, train only (notebook 09).
 
-Два режими: «primary» — ті самі три зовнішні періоди, що й у ноутбуці 05; «weekly» —
-кожен тиждень 10–17 оцінюється моделями, навченими на попередніх тижнях.
+Two modes: "primary" uses the same three outer periods as notebook 05; "weekly" evaluates
+each week 10–17 with models trained on the preceding weeks.
 """
 
 from __future__ import annotations
@@ -58,26 +58,26 @@ OUTPUT = "weighted_weekly_outputs"
 
 
 def freeze(root):
-    """Зафіксувати протокол до читання даних."""
-    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Протокол зваженого навчання")
+    """Freeze the protocol before reading data."""
+    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Weighted training protocol")
 
 
 def sample_weights(data: pd.DataFrame, mode: str) -> tuple[np.ndarray, dict]:
-    """Ваги за сумою, обрізані на p99 train і нормовані до середнього 1; без суми — медіана."""
+    """Amount weights clipped at the train p99 and normalised to mean 1; missing amount gets the median."""
     amount = data.amount_usd.to_numpy(dtype=float)
     valid = np.isfinite(amount) & (amount > 0)
     if mode == "none":
         return np.ones(len(data)), {"mode": mode, "rows": len(data), "mean": 1., "max": 1.,
                                     "weight_effective_n": float(len(data))}
     if mode not in WEIGHT_MODES or not valid.any():
-        raise ValueError("Немає опори для ваг або невідомий режим")
+        raise ValueError("No weight reference or unknown mode")
     median, cap = float(np.median(amount[valid])), float(np.quantile(amount[valid], .99))
     values = np.minimum(np.where(valid, amount, median), cap)
     if mode == "sqrt_amount_p99":
         values = np.sqrt(values)
     weights = values / values.mean()
     if not np.isfinite(weights).all() or not (weights > 0).all():
-        raise ValueError("Некоректні ваги")
+        raise ValueError("Invalid weights")
     return weights, {"mode": mode, "rows": len(data), "median_amount": median, "cap_amount": cap,
                      "missing_weight_rows": int((~valid).sum()), "mean": float(weights.mean()),
                      "max": float(weights.max()), "weight_effective_n": float(weights.sum() ** 2 / (weights ** 2).sum())}
@@ -89,7 +89,7 @@ def lr_specs(mode: str = "none", variant: str = "baseline") -> list[dict]:
 
 
 class ModelCache:
-    """Одна модель на (останній тиждень навчання, специфікацію): сімейства й режими її не перенавчають."""
+    """One model per (last training week, spec); families and modes reuse it without refitting."""
 
     def __init__(self):
         self.models, self.fit_log = {}, []
@@ -182,7 +182,7 @@ def run(root):
                        {"predictions": predictions, "choices": choices, "calibration": calibration,
                         "inner_candidates": inner, "summary": summary, "periods": periods}.items()}
             if regime == "primary":
-                # Логістична регресія та її калібрування мають відтворювати ноутбук 05.
+                # Logistic regression and its calibration must reproduce notebook 05.
                 evidence = proto.read_json(root / base.OUTPUT / "run_evidence.json")
                 old = proto.verified_csv(root / base.OUTPUT / "outer_predictions.csv",
                                          evidence["result_sha256"]["outer_predictions"], dtype={"dispute_id": "string"})

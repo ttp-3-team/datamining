@@ -1,13 +1,13 @@
-"""Друга, наперед зафіксована оцінка (ноутбук 10): покращення, обрані на тижнях 0–21, і один замір test.
+"""Pre-registered second evaluation (notebook 10): improvements chosen on weeks 0–21, one test measurement.
 
-Перша оцінка (+$1 740, модель лише з train 0–17) лишається незмінною в final_test_outputs/.
-Тут:
-1. develop — вкладена часова перевірка на train+validation (тижні 0–21) п'яти рецептів:
-   логістична регресія; + вага свіжих тижнів; + історія мерчанта; + обидва; CatBoost.
-   Вибір — те саме правило практичного допуску, test закритий.
-2. freeze — зафіксувати обраний рецепт, код і залежності до відкриття test.
-3. test — один раз оцінити на test КОЖЕН рецепт (кожен перенавчений на тижнях 0–21) та базові правила;
-   головним результатом є заздалегідь обраний рецепт, незалежно від того, кращий він чи гірший.
+The first evaluation (train weeks 0–17 only) stays unchanged in final_test_outputs/.
+Steps:
+1. develop: nested temporal validation on train+validation (weeks 0–21) of five recipes:
+   logistic regression; + recency weights; + merchant history; + both; CatBoost.
+   Selection uses the same practical-tolerance rule; test stays closed.
+2. freeze: record the selected recipe, code and dependencies before test is opened.
+3. test: evaluate EVERY recipe (each refit on weeks 0–21) and the baseline rules on test once;
+   the headline result is the pre-selected recipe, whether it is better or worse.
 
     uv run python -m disputes.second_evaluation develop|freeze|test
 """
@@ -90,18 +90,18 @@ PROTOCOL = {
 
 
 def freeze_development(root):
-    """Зафіксувати протокол до читання даних."""
-    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Протокол другої оцінки")
+    """Freeze the protocol before reading data."""
+    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Second evaluation protocol")
 
 
 def load_development(root) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Train і validation (тижні 0–21), відновлені з початкових значень аудиту."""
+    """Train and validation (weeks 0–21) restored from the original audit values."""
     audit = pd.concat([load_table(Path(root) / "outputs", f"{part}_audit.csv") for part in ["train", "validation"]],
                       ignore_index=True)
     data, source_audit = normalize_source(audit[["raw__" + c for c in SOURCE_COLUMNS]].rename(
         columns=lambda c: c.removeprefix("raw__")))
     if not data.dispute_week.between(0, VALIDATION_LAST_WEEK).all():
-        raise ValueError("У даних розробки є тижні поза 0–21")
+        raise ValueError("Development data contain weeks outside 0–21")
     return data, source_audit
 
 
@@ -118,7 +118,7 @@ def with_features(window: Window, spec: dict) -> Window:
 
 
 def recipe_predict(window: Window, spec: dict) -> np.ndarray:
-    """Навчити рецепт на window.train (з вагами й історією, якщо задано) і спрогнозувати window.eval."""
+    """Fit a recipe on window.train (with weights and history if set) and predict window.eval."""
     window = with_features(window, spec)
     weights = recency_weights(window.train, spec["half_life"]) if spec.get("half_life") else None
     model = fit(window.train, window.train_audit, spec, sample_weight=weights)
@@ -126,7 +126,7 @@ def recipe_predict(window: Window, spec: dict) -> np.ndarray:
 
 
 def cost_sensitivity(rows: pd.DataFrame, p_column: str = "p") -> pd.DataFrame:
-    """Score моделі й «боротися завжди», якщо ціна дії інша (частка виграшу та сама)."""
+    """Model and always-fight Score under a different action cost (same benefit share)."""
     rows = rows.loc[rows.eligible]
     result = []
     for cost in COSTS:
@@ -171,12 +171,12 @@ def run_development(root):
             "code_sha256": proto.code_hashes("second_evaluation.py", "backtest.py", "models.py", "evaluation.py",
                                              "economics.py", "preparation.py", "config.py"),
             "result_sha256": hashes})
-    print("Обраний рецепт:", selection["selected_strategy"], flush=True)
+    print("Selected recipe:", selection["selected_strategy"], flush=True)
     return summary, selection
 
 
 def freeze_test(root) -> dict:
-    """Зафіксувати обраний рецепт, докази й код до відкриття test."""
+    """Freeze the selected recipe, evidence and code before test is opened."""
     root = Path(root)
     selection_path, evidence_path = root / OUTPUT / "selection.json", root / OUTPUT / "run_evidence.json"
     selection = proto.read_json(selection_path)
@@ -193,16 +193,16 @@ def freeze_test(root) -> dict:
     lock = output / "final_protocol.json"
     if lock.exists():
         if proto.read_json(lock) != proto.canonical(protocol):
-            raise ValueError("Зафіксований протокол другої оцінки відрізняється; test повторно не оцінювати")
+            raise ValueError("Frozen second evaluation protocol differs; do not re-evaluate test")
     else:
         proto.write_json(lock, protocol)
     if (output / "test_report.json").exists():
-        raise FileExistsError("Друга оцінка test уже виконана; повторне оцінювання заборонено")
+        raise FileExistsError("Second test evaluation already done; re-evaluation is not allowed")
     return protocol
 
 
 def data_quality(root) -> dict[str, pd.DataFrame]:
-    """Агрегати якості даних (жодних рядків): обсяг і частка виграшів за тижнями та категоріями причин."""
+    """Aggregate data checks (no rows): volume and win rate by week and reason category."""
     data = pd.concat([load_table(Path(root) / "outputs", f"{part}_clean.csv").assign(split=part)
                       for part in ["train", "validation", "test", "unknown_time"]], ignore_index=True)
     grouped = lambda keys: data.groupby(keys, dropna=False).won.agg(rows="size", win_rate="mean").reset_index()
@@ -210,21 +210,21 @@ def data_quality(root) -> dict[str, pd.DataFrame]:
 
 
 def evaluate_test_once(root) -> dict:
-    """Перенавчити кожен рецепт на тижнях 0–21 і один раз оцінити на test разом із базовими правилами."""
+    """Refit every recipe on weeks 0–21 and evaluate once on test together with the baseline rules."""
     root = Path(root)
     protocol = freeze_test(root)
     if not proto.code_hashes_match(protocol["code_sha256"]) or proto.sha256(root / "uv.lock") != protocol["lockfile_sha256"]:
-        raise ValueError("Код або залежності змінилися після фіксації")
+        raise ValueError("Code or dependencies changed after freezing")
     data, audit = load_development(root)
     tuned = {recipe: inner_search(data, audit, FINAL_FOLDS, specs, recipe_predict)[0] for recipe, specs in RECIPES.items()}
     development, development_audit = prepare_amounts(data, audit, fit_scale_reference(data))
 
-    # Test відкривається лише тут — після вибору й налаштування всіх рецептів. Таблиці ті самі, що в першій оцінці.
+    # Test is opened only here, after all recipes are selected and tuned. Same tables as in the first evaluation.
     test, test_audit = load_table(root / "outputs", "test_clean.csv"), load_table(root / "outputs", "test_audit.csv")
     window = Window(development, development_audit, test, test_audit, VALIDATION_LAST_WEEK)
     probabilities = {"constant_train_rate": np.full(len(test), float(development.won.mean()))}
     probabilities |= {recipe: recipe_predict(window, spec) for recipe, spec in tuned.items()}
-    # Модель першої оцінки (train 0–17) — для парного порівняння на тих самих спорах.
+    # First-evaluation model (train 0–17), for a paired comparison on the same disputes.
     train_raw, train_source_audit, _ = v1_study.load_train_only(root)
     train, train_audit = prepare_amounts(train_raw, train_source_audit, fit_scale_reference(train_raw))
     first = fit_strategy("logistic", train_raw, train_source_audit, train, train_audit)

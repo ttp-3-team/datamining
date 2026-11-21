@@ -1,7 +1,7 @@
 [project]
 name = "disputes"
 version = "0.1.0"
-description = "Хакатон «Основи Data Mining»: модель імовірності виграшу чарджбеку й економічне правило рішення"
+description = "Data Mining hackathon: chargeback win-probability model and an economic decision rule"
 requires-python = ">=3.12"
 dependencies = [
     "catboost==1.2.10",
@@ -42,12 +42,12 @@ formats = "ipynb,py:percent"
 [tool.ruff]
 line-length = 130
 src = ["src", "tests"]
-extend-exclude = ["*.ipynb"]  # джерело ноутбуків — пари .py (jupytext)
+extend-exclude = ["*.ipynb"]  # notebook sources are the jupytext .py files
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-ignore = ["E731"]  # короткі lambda-хелпери всередині функцій
+ignore = ["E731"]  # short lambda helpers inside functions
 
 [tool.ruff.lint.per-file-ignores]
-# Ноутбуки: matplotlib.use("Agg") перед pyplot; довгі рядки markdown.
+# Notebooks: matplotlib.use("Agg") before pyplot; long markdown lines.
 "notebooks/*.py" = ["E402", "E501"]

@@ -1,4 +1,4 @@
-"""Незалежні перевірки розрахунків і часових меж модельного експерименту."""
+"""Independent checks of the model comparison calculations and time boundaries."""
 import unittest
 
 import numpy as np
@@ -32,7 +32,7 @@ class ModelChecks(unittest.TestCase):
         profit = profit_rows(self.data, self.audit, p)
         np.testing.assert_allclose(profit[:3], [14., 0., 0.])
         self.assertTrue(np.isnan(profit[3]))
-        # Боремося й програємо: вартість сплачується навіть за won=0.
+        # Fighting and losing still costs C.
         self.assertEqual(profit_rows(self.data, self.audit, np.ones(4))[1], -6.)
 
     def test_equality_at_break_even_is_skip(self):

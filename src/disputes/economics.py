@@ -1,7 +1,7 @@
-"""Грошове правило: коли боротися і скільки це приносить.
+"""Economic decision rule and per-dispute revenue.
 
-Боремося, якщо очікуваний виграш більший за ціну дії: p × 0,2 × A > 6.
-Без надійної USD-суми рішення не приймається (`review_amount`), а дохід невідомий (NaN).
+Fight if the expected benefit exceeds the action cost: p × 0.2 × A > 6.
+Without a reliable USD amount no decision is made (`review_amount`) and revenue is unknown (NaN).
 """
 
 from __future__ import annotations
@@ -14,17 +14,17 @@ from disputes.config import ACTION_COST, BENEFIT_SHARE
 
 def check_aligned(data: pd.DataFrame, audit: pd.DataFrame) -> None:
     if not data.dispute_id.equals(audit.dispute_id):
-        raise ValueError("Рядки даних і аудиту не відповідають одне одному")
+        raise ValueError("Data and audit rows do not match")
 
 
 def check_probabilities(p, n: int) -> None:
     p = np.asarray(p, dtype=float)
     if p.shape != (n,) or not np.isfinite(p).all() or ((p < 0) | (p > 1)).any():
-        raise ValueError("Некоректні ймовірності")
+        raise ValueError("Invalid probabilities")
 
 
 def payoff(data: pd.DataFrame) -> np.ndarray:
-    """Фактичний внесок, якщо боротися: 0,2 × сума × won − 6."""
+    """Realised contribution if fought: 0.2 × amount × won − 6."""
     return BENEFIT_SHARE * data.amount_usd.to_numpy(dtype=float) * data.won.to_numpy(dtype=int) - ACTION_COST
 
 
@@ -37,19 +37,19 @@ def break_even_probability(amount) -> np.ndarray:
 
 
 def policy(data: pd.DataFrame, audit: pd.DataFrame, p) -> np.ndarray:
-    """Дія для кожного спору: fight / skip / review_amount. Ціль `won` не використовується."""
+    """Action per dispute: fight / skip / review_amount. The target `won` is not used."""
     check_aligned(data, audit)
     check_probabilities(p, len(data))
     eligible = audit.score_eligible.to_numpy(dtype=bool)
     amount = data.amount_usd.to_numpy(dtype=float)
     if not (np.isfinite(amount[eligible]) & (amount[eligible] > 0)).all():
-        raise ValueError("Прапорець Score суперечить сумам")
+        raise ValueError("Score eligibility flag contradicts amounts")
     fight = eligible & (BENEFIT_SHARE * amount * np.asarray(p) > ACTION_COST)
     return np.where(~eligible, "review_amount", np.where(fight, "fight", "skip"))
 
 
 def profit_rows(data: pd.DataFrame, audit: pd.DataFrame, p) -> np.ndarray:
-    """Внесок кожного спору в Score; NaN там, де сума невідома."""
+    """Contribution of each dispute to Score; NaN where the amount is unknown."""
     actions = policy(data, audit, p)
     eligible = audit.score_eligible.to_numpy(dtype=bool)
     return np.where(eligible, np.where(actions == "fight", payoff(data), 0.), np.nan)

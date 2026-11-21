@@ -1,4 +1,4 @@
-"""Відтворювана підготовка спорів. Моделі тут не навчаються."""
+"""Reproducible preparation of disputes. No models are trained here."""
 
 import argparse
 import json
@@ -40,9 +40,9 @@ class Settings:
 
 
 def normalize_source(raw):
-    """Уніфікувати формат; зберегти початкові значення в окремому аудиті."""
+    """Normalise formats; keep the original values in a separate audit table."""
     if set(raw.columns) != set(SOURCE_COLUMNS):
-        raise ValueError("Очікуються рівно 13 колонок початкового dataset.csv.")
+        raise ValueError("Expected exactly 13 columns of the original dataset.csv.")
     data = raw[SOURCE_COLUMNS].drop_duplicates().copy().reset_index(drop=True)
     audit = data.add_prefix("raw__")
     for column in ["dispute_id", *CATEGORY_COLUMNS]:
@@ -51,11 +51,11 @@ def normalize_source(raw):
             .replace({"": pd.NA, "-": pd.NA, "?": pd.NA})
         )
     if data.dispute_id.isna().any() or not data.dispute_id.is_unique:
-        raise ValueError("Порожні або повторні dispute_id потребують окремого розгляду.")
+        raise ValueError("Empty or duplicate dispute_id values require separate handling.")
     audit.insert(0, "dispute_id", data.dispute_id)
     target = pd.to_numeric(data.won, errors="coerce")
     if not target.isin([0, 1]).all():
-        raise ValueError("won повинен містити тільки 0 або 1 без пропусків.")
+        raise ValueError("won must contain only 0 or 1 with no missing values.")
     data["won"] = target.astype("int64")
 
     for column in ["payment_method", "card_brand", "reason_category"]:
@@ -105,7 +105,7 @@ def normalize_source(raw):
 
 
 def split_by_time(data, settings=Settings()):
-    """Ранні тижні задають правила, пізніші залишаються для перевірки."""
+    """Split by week: early weeks define the rules, later weeks are held out."""
     week = data.dispute_week
     masks = {
         "train": week.le(settings.train_last_week),
@@ -116,14 +116,14 @@ def split_by_time(data, settings=Settings()):
     parts = {name: data.loc[mask.fillna(False)].copy() for name, mask in masks.items()}
     ids = pd.concat([part.dispute_id for part in parts.values()])
     if len(ids) != len(data) or not ids.is_unique:
-        raise ValueError("Поділ загубив або повторив спори.")
+        raise ValueError("Split lost or duplicated disputes.")
     if parts["train"].empty:
-        raise ValueError("Немає ранніх даних для опорної статистики.")
+        raise ValueError("No early data for the reference statistics.")
     return parts
 
 
 def fit_scale_reference(train, settings=Settings()):
-    """Обчислити опору тільки на ранній частині, без використання won."""
+    """Compute the reference on the early part only, without using won."""
     valid = train.currency.notna()
     for column, sentinel in SENTINELS.items():
         valid &= np.isfinite(train[column]) & train[column].ge(settings.min_reference_amount)
@@ -141,11 +141,11 @@ def fit_scale_reference(train, settings=Settings()):
 
 
 def prepare_amounts(data, audit, reference, settings=Settings()):
-    """Застосувати правила один раз; повторний виклик явно заборонено."""
+    """Apply the rules once; a repeated call is rejected."""
     if "preparation_version" in audit:
-        raise ValueError("Ці дані вже оброблені. Запустіть підготовку від dataset.csv.")
+        raise ValueError("These data are already processed. Run preparation from dataset.csv.")
     if not data.dispute_id.equals(audit.dispute_id):
-        raise ValueError("Рядки даних та аудиту не відповідають одне одному.")
+        raise ValueError("Data and audit rows do not match.")
     result, log = data.copy(), audit.copy()
     amount, usd = result.amount, result.amount_usd
     median = result.currency.map(reference["median"])
@@ -232,17 +232,17 @@ def quality_summary(clean, audits):
 
 
 def calculate_baseline(data, audit, observed_only=False):
-    """Score стратегії «боротися завжди» на явно зазначеній підмножині сум."""
+    """Always-fight Score on an explicitly specified subset of amounts."""
     check_aligned(data, audit)
     mask = audit["score_observed_only" if observed_only else "score_eligible"].to_numpy(dtype=bool)
     values = data.amount_usd.to_numpy(dtype=float)[mask]
     if not (np.isfinite(values) & (values > 0)).all():
-        raise ValueError("Прапорець Score не відповідає доступним сумам.")
+        raise ValueError("Score eligibility flag does not match available amounts.")
     return {"rows": int(mask.sum()), "total_rows": len(data), "score_usd": float(payoff(data)[mask].sum())}
 
 
 def export_results(clean, audits, reference, source_path, output_dir, settings=Settings()):
-    """Записати дані, аудит, схеми читання та контрольні суми."""
+    """Write data, audit, read schemas and checksums."""
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -250,9 +250,9 @@ def export_results(clean, audits, reference, source_path, output_dir, settings=S
         "source_sha256": sha256(Path(source_path)),
         "pandas_version": pd.__version__, "numpy_version": np.__version__, "files": {},
         "notes": [
-            "Модель не навчалася. Пропуски збережені; кодування і стандартизація не виконані.",
-            "Опора масштабу визначена лише на train; те саме правило застосоване до всіх частин.",
-            "Test оброблено, але його Score та якість моделі не оцінювалися.",
+            "No model was trained. Missing values are kept; no encoding or scaling applied.",
+            "The scale reference is computed on train only and applied to all splits.",
+            "Test is processed, but no Score or model quality is computed on it.",
         ],
     }
     tables = {f"{name}_clean.csv": value for name, value in clean.items()}
@@ -277,9 +277,9 @@ def export_results(clean, audits, reference, source_path, output_dir, settings=S
         "numeric_candidates": ["amount", "amount_usd", "dispute_week", "dispute_weekday"],
         "excluded_from_automatic_input": ["dispute_id", "won", "all audit columns"],
         "notes": [
-            "Це доступні кандидати, а не готова матриця ознак чи остаточний вибір моделі.",
-            "amount має різні валюти; не порівнювати його як єдину грошову шкалу.",
-            "Коди та ID продавців є категоріями. Пропуски потребують обробки у модельному процесі.",
+            "Available candidates, not a final feature matrix or model choice.",
+            "amount is in different currencies; do not compare it as a single money scale.",
+            "Codes and merchant IDs are categorical. Missing values must be handled in the modelling pipeline.",
         ],
     }
     (output / "feature_contract.json").write_text(json.dumps(features, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -288,14 +288,14 @@ def export_results(clean, audits, reference, source_path, output_dir, settings=S
 
 
 def load_table(output_dir, filename):
-    """Прочитати CSV з відновленням типів і перевіркою контрольної суми."""
+    """Read a CSV with restored dtypes and a checksum check."""
     output = Path(output_dir)
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     spec = manifest["files"][filename]
     path = output / filename
     if sha256(path) != spec["sha256"]:
-        raise ValueError(f"Файл {filename} змінився після експорту.")
-    # raw__ поля залишають буквальні '?' і '-'; порожнє поле означає пропуск.
+        raise ValueError(f"File {filename} changed after export.")
+    # raw__ fields keep literal '?' and '-'; only an empty field means missing.
     return pd.read_csv(path, dtype=spec["dtypes"], keep_default_na=False, na_values=[""])
 
 

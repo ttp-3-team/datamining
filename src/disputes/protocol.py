@@ -1,7 +1,7 @@
-"""Протоколи, контроль доступу до даних і докази запуску — спільне для всіх досліджень.
+"""Protocols, data-access control and run evidence shared by all studies.
 
-Протокол записується ДО читання даних; повторний запуск з іншим протоколом зупиняється.
-Під час дослідження аудит-хук Python дозволяє відкривати лише заявлені таблиці.
+A protocol is written BEFORE data are read; a rerun with a different protocol stops.
+During a study a Python audit hook allows opening only the declared tables.
 """
 
 from __future__ import annotations
@@ -28,25 +28,25 @@ def read_json(path: Path | str):
 
 
 def canonical(value):
-    """Значення таким, яким воно буде після запису в JSON (кортежі → списки тощо)."""
+    """Value as it will look after a JSON round trip (tuples → lists etc.)."""
     return json.loads(json.dumps(value))
 
 
 def write_json(path: Path | str, value) -> None:
-    """JSON з відступами; скаляри numpy записуються як звичайні числа."""
+    """Indented JSON; numpy scalars are written as plain numbers."""
     text = json.dumps(value, ensure_ascii=False, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     Path(path).write_text(text, encoding="utf-8")
 
 
-def freeze(output: Path | str, protocol: dict, label: str = "Протокол") -> tuple[Path, str]:
-    """Записати protocol.json у `output` (або перевірити, що він не змінився)."""
+def freeze(output: Path | str, protocol: dict, label: str = "Protocol") -> tuple[Path, str]:
+    """Write protocol.json to `output`, or check that it is unchanged."""
     output = Path(output)
     output.mkdir(exist_ok=True)
     path = output / "protocol.json"
     value = canonical(protocol)
     if path.exists():
         if read_json(path) != value:
-            raise ValueError(f"{label} уже зафіксований і відрізняється; не перезаписувати після результатів")
+            raise ValueError(f"{label} is already frozen and differs; do not overwrite after results")
     else:
         with path.open("x", encoding="utf-8") as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2)
@@ -54,7 +54,7 @@ def freeze(output: Path | str, protocol: dict, label: str = "Протокол") 
 
 
 def code_hashes(*modules: str) -> dict[str, str]:
-    """SHA-256 модулів пакета; ключ — шлях від кореня репозиторію."""
+    """SHA-256 of package modules, keyed by path from the repository root."""
     return {code_file(m).relative_to(PROJECT).as_posix(): sha256(code_file(m)) for m in modules}
 
 
@@ -63,14 +63,14 @@ def code_hashes_match(hashes: dict[str, str]) -> bool:
 
 
 def verified_csv(path: Path | str, expected: str, **kwargs) -> pd.DataFrame:
-    """Прочитати CSV лише якщо його контрольна сума збігається з очікуваною."""
+    """Read a CSV only if its checksum matches the expected one."""
     if sha256(path) != expected:
-        raise ValueError(f"Контрольна сума {Path(path).name} не збігається")
+        raise ValueError(f"Checksum mismatch: {Path(path).name}")
     return pd.read_csv(path, **kwargs)
 
 
 def write_tables(output: Path, tables: dict[str, pd.DataFrame]) -> dict[str, str]:
-    """Записати таблиці як CSV і повернути їхні контрольні суми."""
+    """Write tables as CSV and return their checksums."""
     for name, frame in tables.items():
         frame.to_csv(output / f"{name}.csv", index=False)
     return {name: sha256(output / f"{name}.csv") for name in tables}
@@ -84,7 +84,7 @@ def runtime_versions() -> dict[str, str]:
             "sklearn": sklearn.__version__, "catboost": catboost.__version__}
 
 
-# --------------------------------------------------------------------------- контроль доступу
+# --------------------------------------------------------------------------- data access control
 _POLICIES: list[dict] = []
 _HOOK_INSTALLED = False
 
@@ -97,20 +97,20 @@ def _audit(event: str, args) -> None:
         return
     policy = _POLICIES[-1]
     if path.name in policy["forbidden_names"] or path.name.startswith(policy["forbidden_prefixes"]):
-        raise PermissionError(f"Протокол забороняє відкривати {path.name}")
+        raise PermissionError(f"Protocol forbids opening {path.name}")
     allowed = policy["allowed"].get(path.parent)
     if allowed is not None:
         if path.name not in allowed:
-            raise PermissionError(f"Протокол забороняє відкривати {path.parent.name}/{path.name}")
+            raise PermissionError(f"Protocol forbids opening {path.parent.name}/{path.name}")
         policy["opened"].append(path.name)
 
 
 @contextmanager
 def data_access(allowed: dict[Path, set[str]], forbidden_names=(), forbidden_prefixes=()):
-    """Обмежити, які CSV можна відкрити всередині блоку; повертає журнал відкритих таблиць.
+    """Restrict which CSVs may be opened inside the block; yields the log of opened tables.
 
-    allowed: тека → дозволені в ній файли (інші CSV цієї теки заборонені).
-    Аудит-хук Python не можна зняти, тому він один, а політики — стек.
+    allowed: folder → permitted files in it (other CSVs in that folder are forbidden).
+    A Python audit hook cannot be removed, so there is one hook and a stack of policies.
     """
     global _HOOK_INSTALLED
     if not _HOOK_INSTALLED:
@@ -127,17 +127,17 @@ def data_access(allowed: dict[Path, set[str]], forbidden_names=(), forbidden_pre
 
 
 def train_only_access(root: Path):
-    """Дозволено тільки outputs/train_audit.csv; validation, test і весь датасет закриті."""
+    """Only outputs/train_audit.csv is allowed; validation, test and the full dataset are closed."""
     return data_access({Path(root) / "outputs": {"train_audit.csv"}},
                        forbidden_names={"dataset.csv", "validation_predictions.csv"},
                        forbidden_prefixes=("test_", "validation_", "unknown_time_"))
 
 
 def main(freeze_fn, run_fn) -> None:
-    """Спільний CLI досліджень: `python -m disputes.<study> [--freeze-only]`."""
+    """Shared study CLI: `python -m disputes.<study> [--freeze-only]`."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--freeze-only", action="store_true", help="лише зафіксувати протокол")
+    parser.add_argument("--freeze-only", action="store_true", help="only freeze the protocol")
     if parser.parse_args().freeze_only:
-        print("Протокол зафіксовано:", freeze_fn(PROJECT)[1])
+        print("Protocol frozen:", freeze_fn(PROJECT)[1])
     else:
         run_fn(PROJECT)

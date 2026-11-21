@@ -1,7 +1,7 @@
-"""CatBoost у тій самій вкладеній train-only схемі (ноутбук 06).
+"""CatBoost in the same nested train-only scheme (notebook 06).
 
-Стратегії ноутбука 05 не перераховуються: їхні зовнішні прогнози читаються з перевіркою
-контрольних сум, а CatBoost додається на тих самих спорах і періодах.
+Notebook 05 strategies are not recomputed: their outer predictions are read with checksum
+verification, and CatBoost is added on the same disputes and periods.
 """
 
 from __future__ import annotations
@@ -39,16 +39,16 @@ OUTPUT = "catboost_outputs"
 
 
 def freeze(root):
-    """Зафіксувати протокол до читання даних."""
-    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "Протокол CatBoost")
+    """Freeze the protocol before reading data."""
+    return proto.freeze(Path(root) / OUTPUT, PROTOCOL, "CatBoost protocol")
 
 
 def load_previous(root):
-    """Перевірені результати ноутбука 05: зовнішні прогнози, статус калібрування, докази запуску."""
+    """Verified notebook 05 results: outer predictions, calibration status, run evidence."""
     folder = Path(root) / previous.OUTPUT
     evidence = proto.read_json(folder / "run_evidence.json")
     if proto.sha256(Path(root) / "outputs" / "train_audit.csv") != evidence["train_audit_sha256"]:
-        raise ValueError("Train-аудит відрізняється від попереднього експерименту")
+        raise ValueError("Train audit differs from the previous study")
     predictions = proto.verified_csv(folder / "outer_predictions.csv", evidence["result_sha256"]["outer_predictions"],
                                      dtype={"dispute_id": "string", "outer_period": "string"})
     calibration = proto.verified_csv(folder / "calibration_status.csv", evidence["result_sha256"]["calibration_status"])
@@ -73,7 +73,7 @@ def run(root):
             period = f"{cutoff + 1}-{end}"
             lr = baselines.loc[baselines.strategy.eq("logistic") & baselines.outer_period.eq(period)]
             if lr.dispute_id.tolist() != window.eval.dispute_id.tolist():
-                raise ValueError("ID CatBoost і попередніх стратегій не збігаються")
+                raise ValueError("CatBoost IDs do not match the previous strategies")
             probabilities = {"catboost": p, "catboost_calibrated": calibrate(calibrator, p),
                              "lr_cat_50_50": .5 * p + .5 * lr.p.to_numpy()}
             frames.append(previous.labelled_rows(window, probabilities, period))
@@ -81,7 +81,7 @@ def run(root):
             records.append(candidates.assign(outer_period=period))
             oof_frames.append(oof.assign(outer_period=period))
             choices.append({"outer_period": period, **spec})
-            # Збережена модель має відтворювати ті самі прогнози без повторного навчання.
+            # The saved model must reproduce the same predictions without refitting.
             path = output / f"catboost_weeks_{period}.cbm"
             model.save_model(str(path))
             restored = CatBoostClassifier().load_model(str(path))

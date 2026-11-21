@@ -1,0 +1,56 @@
+{
+  "labels": {
+    "constant_train_rate": "Постійна train-ймовірність",
+    "logistic": "Логістична, внутрішній вибір C",
+    "logistic_calibrated": "Логістична + калібрування",
+    "boosting": "HistGradientBoosting",
+    "boosting_calibrated": "HGB + калібрування",
+    "catboost": "CatBoost",
+    "catboost_calibrated": "CatBoost + калібрування",
+    "blend_50_50": "Логістична + HGB 50/50",
+    "lr_cat_50_50": "Логістична + CatBoost 50/50",
+    "lr_weight_amount": "ЛР, вага за сумою (p99)",
+    "lr_weight_amount_calibrated": "ЛР, вага за сумою + калібрування",
+    "lr_weight_sqrt": "ЛР, вага √суми (p99)",
+    "lr_weight_sqrt_calibrated": "ЛР, вага √суми + калібрування",
+    "lr_psp_currency": "ЛР + провайдер × валюта",
+    "lr_psp_reason": "ЛР + провайдер × причина",
+    "lr_both_interactions": "ЛР + обидві взаємодії",
+    "lr_fixed_C_0_1": "ЛР, фіксований C=0.1 (діагностика)",
+    "lr_fixed_C_1": "ЛР, фіксований C=1",
+    "historical_lr_hgb_50_50": "ЛР C=1 + HGB (історичний ансамбль)"
+  },
+  "regimes": {
+    "nested_train_3": "Train: 3 зрізи",
+    "weekly_train_8": "Train: 8 тижнів",
+    "reused_validation": "Validation"
+  },
+  "columns": {
+    "method": "Метод",
+    "score_usd": "Score, USD",
+    "evaluated_rows": "Спорів для Score",
+    "uplift_vs_always_percent": "До «завжди», %",
+    "uplift_vs_constant_percent": "До постійної p, %",
+    "uplift_vs_logistic_percent": "До ЛР, %",
+    "score_per1000_usd": "Score / 1000, USD",
+    "observed_score_usd": "Без змінених USD-сум",
+    "periods_above_always": "Тижнів > «завжди»",
+    "observed_uplift_vs_logistic_percent": "Без змінених сум: до ЛР, %",
+    "periods_above_logistic": "Тижнів > ЛР",
+    "worst_delta_vs_logistic_per1000": "Найгірший Δ до ЛР / 1000",
+    "sd_delta_vs_logistic_per1000": "Розкид Δ до ЛР / 1000"
+  },
+  "overview": {
+    "method": "Метод",
+    "score_usd": "Score, USD",
+    "uplift_vs_always_percent": "до завжди, %",
+    "uplift_vs_logistic_percent": "до ЛР, %",
+    "weeks_above_logistic": "Тижнів краще ЛР / 8"
+  },
+  "fixed_C_label": "ЛР, C={C}",
+  "recommendation": {
+    "both_logistic": "За незмінним практичним правилом обидві нові схеми залишають звичайну логістичну регресію. Додаткові ваги не дали достатнього стабільного приросту для ускладнення рішення.",
+    "same_choice": "Обидві схеми за практичним правилом обрали {method}. Це кандидат для фіксації рецепта й подальшої зовнішньої перевірки; майбутню перевагу не доведено.",
+    "different_choice": "Вибір за трьома зрізами й щотижневою схемою різниться. Узгодженого переможця не отримано; великий сумарний Score одного режиму не є достатньою підставою замінити просту базову модель."
+  }
+}

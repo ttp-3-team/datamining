@@ -1,4 +1,4 @@
-"""Спільні частини: контроль доступу до даних, метрики та групові підсумки."""
+"""Shared parts: data access control, metrics and group summaries."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +23,7 @@ class AccessGuardChecks(unittest.TestCase):
                     with self.assertRaises(PermissionError):
                         pd.read_csv(inputs / name)
             self.assertEqual(opened, ["train_audit.csv"])
-            # Після виходу з блоку обмеження не діє — хуки не накопичуються між дослідженнями.
+            # The restriction ends with the block; hooks do not accumulate across studies.
             self.assertEqual(len(pd.read_csv(inputs / "test_clean.csv")), 1)
 
 

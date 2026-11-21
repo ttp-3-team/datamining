@@ -1,8 +1,9 @@
-"""Зведення всіх перевірених методів (method_review_outputs/): CSV-таблиці та HTML-звіт.
+"""Build the method review (method_review_outputs/): CSV tables and an HTML report.
 
-Читаються лише збережені й перевірені за контрольними сумами результати досліджень;
-початкові train/validation/test CSV закриті аудит-хуком.
+Reads only saved study results verified by checksum; raw train/validation/test CSVs are blocked by the audit hook.
+Ukrainian report text lives in templates/method_review_text.json.
 """
+import json
 from pathlib import Path
 
 import jinja2
@@ -16,27 +17,10 @@ from disputes.paths import PROJECT
 
 OUTPUT = PROJECT / "method_review_outputs"
 TEMPLATE = Path(__file__).parent / "templates" / "method_review.html.j2"
-LABELS = {
-    "constant_train_rate": "Постійна train-ймовірність", "logistic": "Логістична, внутрішній вибір C",
-    "logistic_calibrated": "Логістична + калібрування", "boosting": "HistGradientBoosting",
-    "boosting_calibrated": "HGB + калібрування", "catboost": "CatBoost",
-    "catboost_calibrated": "CatBoost + калібрування", "blend_50_50": "Логістична + HGB 50/50",
-    "lr_cat_50_50": "Логістична + CatBoost 50/50", "lr_weight_amount": "ЛР, вага за сумою (p99)",
-    "lr_weight_amount_calibrated": "ЛР, вага за сумою + калібрування",
-    "lr_weight_sqrt": "ЛР, вага √суми (p99)", "lr_weight_sqrt_calibrated": "ЛР, вага √суми + калібрування",
-    "lr_psp_currency": "ЛР + провайдер × валюта", "lr_psp_reason": "ЛР + провайдер × причина",
-    "lr_both_interactions": "ЛР + обидві взаємодії", "lr_fixed_C_0_1": "ЛР, фіксований C=0.1 (діагностика)",
-    "lr_fixed_C_1": "ЛР, фіксований C=1", "historical_lr_hgb_50_50": "ЛР C=1 + HGB (історичний ансамбль)",
-}
-REGIMES = {"nested_train_3": "Train: 3 зрізи", "weekly_train_8": "Train: 8 тижнів", "reused_validation": "Validation"}
-COLUMN_NAMES = {
-    "method": "Метод", "score_usd": "Score, USD", "evaluated_rows": "Спорів для Score",
-    "uplift_vs_always_percent": "До «завжди», %", "uplift_vs_constant_percent": "До постійної p, %",
-    "uplift_vs_logistic_percent": "До ЛР, %", "score_per1000_usd": "Score / 1000, USD",
-    "observed_score_usd": "Без змінених USD-сум", "periods_above_always": "Тижнів > «завжди»",
-    "observed_uplift_vs_logistic_percent": "Без змінених сум: до ЛР, %", "periods_above_logistic": "Тижнів > ЛР",
-    "worst_delta_vs_logistic_per1000": "Найгірший Δ до ЛР / 1000", "sd_delta_vs_logistic_per1000": "Розкид Δ до ЛР / 1000",
-}
+TEXT = json.loads((Path(__file__).parent / "templates" / "method_review_text.json").read_text(encoding="utf-8"))
+LABELS = TEXT["labels"]
+REGIMES = TEXT["regimes"]
+COLUMN_NAMES = TEXT["columns"]
 METRIC_COLUMNS = ["method", "score_usd", "evaluated_rows", "uplift_vs_always_percent", "uplift_vs_constant_percent",
                   "uplift_vs_logistic_percent", "score_per1000_usd", "log_loss", "brier", "roc_auc",
                   "observed_score_usd", "observed_uplift_vs_logistic_percent"]
@@ -54,7 +38,7 @@ def label(method_id: str) -> str:
 
 
 def relative(frame: pd.DataFrame, baseline_id: str = "logistic") -> pd.DataFrame:
-    """Відносні оцінки до «боротися завжди», сталої ймовірності та логістичної регресії того самого режиму."""
+    """Scores relative to always-fight, the constant probability and logistic regression of the same regime."""
     ref = frame.set_index("method_id").loc[baseline_id]
     return frame.assign(
         delta_vs_logistic_usd=frame.score_usd - ref.score_usd,
@@ -68,7 +52,7 @@ def relative(frame: pd.DataFrame, baseline_id: str = "logistic") -> pd.DataFrame
 
 
 def gain_concentration(predictions: pd.DataFrame) -> pd.DataFrame:
-    """Чи дав приріст до ЛР один тиждень або кілька великих спорів."""
+    """Whether the gain over LR comes from a single week or a few large disputes."""
     reference = predictions.loc[predictions.strategy.eq("logistic"), ["dispute_id", "profit"]]
     rows = []
     for method, part in predictions.groupby("strategy"):
@@ -115,7 +99,7 @@ def build():
                  ["catboost_outputs", "interaction_outputs", "weighted_weekly_outputs", "validation_extension_outputs"]}
 
     def load(folder: str, filename: str, verify: bool = True) -> pd.DataFrame:
-        """Прочитати CSV; таблиці досліджень — лише з контрольною сумою з їхніх доказів запуску."""
+        """Read a CSV; study tables are checked against the checksum in their run evidence."""
         path = PROJECT / folder / filename
         if verify and folder in manifests:
             frame = proto.verified_csv(path, manifests[folder]["result_sha256"][filename.removesuffix(".csv")])
@@ -124,7 +108,7 @@ def build():
         sources.append({"path": path.relative_to(PROJECT).as_posix(), "sha256": proto.sha256(path)})
         return frame
 
-    # Звіт не читає початкових рядків train/validation/test — лише агреговані оцінки.
+    # The report reads aggregated scores only, never raw train/validation/test rows.
     guard = proto.data_access({PROJECT / "outputs": set(),
                                PROJECT / "validation_extension_outputs": {"validation_summary.csv"}},
                               forbidden_names={"dataset.csv"}, forbidden_prefixes=("test_",))
@@ -135,7 +119,7 @@ def build():
         nested = pd.concat([load("catboost_outputs", "strategy_summary.csv").rename(columns={"strategy": "method_id"}),
                             interactions, weighted.rename(columns={"strategy": "method_id"})], ignore_index=True)
         if nested.method_id.duplicated().any():
-            raise ValueError("Дублікати методів у головній train-таблиці")
+            raise ValueError("Duplicate methods in the nested train table")
         nested = relative(nested.assign(evaluation="nested_train_3"))
         weekly = load("weighted_weekly_outputs", "weekly_summary.csv").rename(columns={"strategy": "method_id"})
         weekly = relative(weekly.assign(evaluation="weekly_train_8"))
@@ -156,24 +140,24 @@ def build():
         concentration = gain_concentration(load("weighted_weekly_outputs", "weekly_predictions.csv"))
         cgrid = load("train_only_outputs", "C_grid_summary.csv")
         cgrid = relative(cgrid.assign(method_id=cgrid.C.map(lambda c: f"lr_fixed_C_{c:g}"),
-                                      method=cgrid.C.map(lambda c: f"ЛР, C={c:g}"),
+                                      method=cgrid.C.map(lambda c: TEXT["fixed_C_label"].format(C=f"{c:g}")),
                                       evaluation="fixed_C_train_diagnostic"), "lr_fixed_C_1")
         hgb = hgb_feature_diagnostics(load)
-        # Діагностику тижня 13 пише scripts/verify_weighted_weekly.py, а не дослідження: її суми немає в доказах.
+        # Written by scripts/verify_weighted_weekly.py, not by the study, so it has no checksum in the run evidence.
         week13 = load("weighted_weekly_outputs", "week13_group_diagnostic.csv", verify=False)
         selections = {regime: proto.read_json(PROJECT / "weighted_weekly_outputs" / f"{regime}_selection.json")
                       for regime in ["primary", "weekly"]}
 
-    # Огляд: порожні клітинки означають, що метод у відповідному режимі не оцінювали.
+    # Empty overview cells: the method was not evaluated in that regime.
     methods = pd.Series(list(dict.fromkeys(all_methods.method_id)))
-    overview = pd.DataFrame({"Метод": methods.map(label), "method_id": methods})
+    overview = pd.DataFrame({TEXT["overview"]["method"]: methods.map(label), "method_id": methods})
     for regime, prefix in REGIMES.items():
         part = all_methods.loc[all_methods.evaluation.eq(regime)].set_index("method_id")
-        for column, title in [("score_usd", "Score, USD"), ("uplift_vs_always_percent", "до завжди, %"),
-                              ("uplift_vs_logistic_percent", "до ЛР, %")]:
+        for column in ["score_usd", "uplift_vs_always_percent", "uplift_vs_logistic_percent"]:
+            title = TEXT["overview"][column]
             overview[f"{prefix}: {title}"] = overview.method_id.map(part[column])
         if regime == "weekly_train_8":
-            overview["Тижнів краще ЛР / 8"] = overview.method_id.map(part.periods_above_logistic)
+            overview[TEXT["overview"]["weeks_above_logistic"]] = overview.method_id.map(part.periods_above_logistic)
 
     tables = {"all_methods_summary": all_methods.reindex(columns=SUMMARY_COLUMNS),
               "weekly_gain_concentration": concentration, "nested_train_table": nested, "weekly_train_table": weekly,
@@ -187,14 +171,11 @@ def build():
         ["method_id", "score_usd", "delta_vs_logistic_usd", "periods_above_logistic"]].to_dict()
     chosen = {regime: selection["selected_strategy"] for regime, selection in selections.items()}
     if chosen["primary"] == chosen["weekly"] == "logistic":
-        recommendation = ("За незмінним практичним правилом обидві нові схеми залишають звичайну логістичну регресію. "
-                          "Додаткові ваги не дали достатнього стабільного приросту для ускладнення рішення.")
+        recommendation = TEXT["recommendation"]["both_logistic"]
     elif chosen["primary"] == chosen["weekly"]:
-        recommendation = (f"Обидві схеми за практичним правилом обрали {label(chosen['primary'])}. Це кандидат для фіксації "
-                          "рецепта й подальшої зовнішньої перевірки; майбутню перевагу не доведено.")
+        recommendation = TEXT["recommendation"]["same_choice"].format(method=label(chosen["primary"]))
     else:
-        recommendation = ("Вибір за трьома зрізами й щотижневою схемою різниться. Узгодженого переможця не отримано; "
-                          "великий сумарний Score одного режиму не є достатньою підставою замінити просту базову модель.")
+        recommendation = TEXT["recommendation"]["different_choice"]
     focus = concentration.loc[concentration.method_id.isin(CONCENTRATION_METHODS)]
     proto.write_json(OUTPUT / "conclusions.json", {
         "primary_weighted_best": best_weight, "weekly_best": weekly_best,
